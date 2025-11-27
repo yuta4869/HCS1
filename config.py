@@ -22,6 +22,8 @@ def resource_path(relative_path):
 # --- General Configuration ---
 WHISPER_MODEL_NAME = "small" # Options: "tiny", "base", "small", "medium", "large" (and their .en variants)
 WHISPER_TRANSCRIBE_BEAM_SIZE = 5       # For faster-whisper. Smaller values (e.g., 1 or 3) can be faster but less accurate.
+INPUT_WAV_FILE = "input.wav"           # Filename for recorded audio
+OUTPUT_WAV_FILE = "output.wav"         # Filename for synthesized audio
 CONFIG_FILE = resource_path("config_heartrate_prosody.json")
 LOG_DIR = os.path.join(os.path.expanduser("~"), "/Users/user/Research/HCS_ver4.0", "Logs")
 
