@@ -148,13 +148,12 @@ class Application(tk.Tk):
         self.current_rr_var = tk.StringVar(value="--")
         ttk.Label(hr_frame, textvariable=self.current_rr_var, style='Status.TLabel').grid(row=2, column=3, sticky=tk.W, pady=2, padx=5)
 
-        ttk.Label(hr_frame, text="Verity Sense 接続制御:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
-        self.connect_hr_button = ttk.Button(hr_frame, text="接続", command=self.toggle_hr_connection)
-        self.connect_hr_button.grid(row=3, column=1, sticky=tk.W, pady=2, padx=5)
-
-        ttk.Label(hr_frame, text="H10 接続制御:").grid(row=3, column=2, sticky=tk.W, padx=5, pady=2)
-        self.connect_h10_button = ttk.Button(hr_frame, text="接続", command=self.toggle_h10_connection)
-        self.connect_h10_button.grid(row=3, column=3, sticky=tk.W, pady=2, padx=5)
+        # Unified Sensor Connection Control
+        ttk.Label(hr_frame, text="センサー接続制御:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
+        self.connect_all_sensors_button = ttk.Button(hr_frame, text="全センサー接続", command=self.connect_all_sensors)
+        self.connect_all_sensors_button.grid(row=3, column=1, sticky=tk.W, pady=2, padx=5)
+        self.disconnect_all_sensors_button = ttk.Button(hr_frame, text="全センサー切断", command=self.disconnect_all_sensors)
+        self.disconnect_all_sensors_button.grid(row=3, column=2, sticky=tk.W, pady=2, padx=5)
 
         row_idx += 1
 
@@ -774,30 +773,90 @@ class Application(tk.Tk):
         self.logger_thread = LoggingThread(self.log_queue)
         self.logger_thread.start()
 
-    def toggle_hr_connection(self):
-        if self.hr_monitor.is_connected:
-            self.hr_monitor.stop_monitoring()
-            self.set_status("Verity Sense disconnected.", "blue")
-        else:
+    def connect_all_sensors(self):
+        self.set_status("全てのセンサーを接続中...", "orange")
+        threading.Thread(target=self._connect_all_sensors_thread, daemon=True).start()
+
+    def _connect_all_sensors_thread(self):
+        hr_connected = False
+        h10_connected = False
+        
+        # Connect Verity Sense
+        if not self.hr_monitor.is_connected:
             try:
-                self.hr_monitor.start_monitoring()
-                self.set_status("Verity Sense connected.", "green")
+                self.set_status("Verity Senseに接続中...", "blue")
+                hr_connected = self.hr_monitor.start_monitoring()
+                if hr_connected:
+                    self.set_status("Verity Senseに接続しました。", "green")
+                else:
+                    self.set_status("Verity Senseの接続に失敗しました。", "red")
             except Exception as e:
-                messagebox.showerror("Connection Error", f"Failed to connect Verity Sense:\n{e}")
-                self.set_status("Verity Sense connection failed.", "red")
+                messagebox.showerror("接続エラー", f"Verity Senseの接続に失敗しました:\n{e}")
+                self.set_status("Verity Senseの接続に失敗しました。", "red")
+        else:
+            hr_connected = True
+            self.set_status("Verity Senseは既に接続されています。", "blue")
+
+        # Connect H10
+        if not self.h10_monitor.is_connected:
+            try:
+                self.set_status("H10に接続中...", "blue")
+                h10_connected = self.h10_monitor.start_monitoring()
+                if h10_connected:
+                    self.set_status("H10に接続しました。", "green")
+                else:
+                    self.set_status("H10の接続に失敗しました。", "red")
+            except Exception as e:
+                messagebox.showerror("接続エラー", f"H10の接続に失敗しました:\n{e}")
+                self.set_status("H10の接続に失敗しました。", "red")
+        else:
+            h10_connected = True
+            self.set_status("H10は既に接続されています。", "blue")
+        
+        if hr_connected and h10_connected:
+            self.set_status("全てのセンサーに接続しました。", "green")
+        elif hr_connected or h10_connected:
+            self.set_status("一部のセンサーに接続しました。", "orange")
+        else:
+            self.set_status("全てのセンサーの接続に失敗しました。", "red")
         self.update_hr_status_labels()
 
-    def toggle_h10_connection(self):
-        if self.h10_monitor.is_connected:
-            self.h10_monitor.stop_monitoring()
-            self.set_status("H10 disconnected.", "blue")
-        else:
+    def disconnect_all_sensors(self):
+        self.set_status("全てのセンサーを切断中...", "orange")
+        threading.Thread(target=self._disconnect_all_sensors_thread, daemon=True).start()
+
+    def _disconnect_all_sensors_thread(self):
+        hr_disconnected = False
+        h10_disconnected = False
+        
+        if self.hr_monitor.is_connected:
             try:
-                self.h10_monitor.start_monitoring()
-                self.set_status("H10 connected.", "green")
+                self.hr_monitor.stop_monitoring()
+                self.set_status("Verity Senseを切断しました。", "blue")
+                hr_disconnected = True
             except Exception as e:
-                messagebox.showerror("Connection Error", f"Failed to connect H10:\n{e}")
-                self.set_status("H10 connection failed.", "red")
+                print(f"Verity Senseの切断中にエラーが発生しました: {e}")
+                self.set_status("Verity Senseの切断に失敗しました。", "red")
+        else:
+            hr_disconnected = True # Already disconnected
+            
+        if self.h10_monitor.is_connected:
+            try:
+                self.h10_monitor.stop_monitoring()
+                self.set_status("H10を切断しました。", "blue")
+                h10_disconnected = True
+            except Exception as e:
+                print(f"H10の切断中にエラーが発生しました: {e}")
+                self.set_status("H10の切断に失敗しました。", "red")
+        else:
+            h10_disconnected = True # Already disconnected
+
+        if hr_disconnected and h10_disconnected:
+            self.set_status("全てのセンサーを切断しました。", "blue")
+        elif hr_disconnected or h10_disconnected:
+            self.set_status("一部のセンサーを切断しました。", "orange")
+        else:
+            self.set_status("全てのセンサーの切断に失敗しました。", "red")
         self.update_hr_status_labels()
 
     def update_hr_status_labels(self):
