@@ -6,7 +6,7 @@ This project, `HCS_ver4.0`, appears to be a Human Computer System focusing on th
 
 ## Features (Inferred)
 
-*   **Heart Rate Monitoring:** Integration with physiological sensors (e.g., Polar devices via `polar_monitor.py` or simulated data).
+*   **Heart Rate Monitoring:** Integration with physiological sensors (e.g., Polar devices via `polar_monitor.py`).
 *   **Audio Processing:** Analysis of speech prosody, potentially through `audio_processing.py`.
 *   **Conversation Management:** Logic for managing interactions, possibly handled by `conversation_manager.py`.
 *   **Graphical User Interface (GUI):** A user-friendly interface built with `gui.py`.
@@ -15,38 +15,72 @@ This project, `HCS_ver4.0`, appears to be a Human Computer System focusing on th
 
 ## Setup and Installation
 
-This project requires Python 3.x. It is highly recommended to use a Python virtual environment to manage dependencies.
+This project requires Python 3.x and platform-specific system libraries. Automated setup scripts are provided for convenience.
 
-1.  **Navigate to the project directory:**
-    ```bash
-    cd /Users/user/Research/HCS_ver4.0
-    ```
+### Automated Setup (Recommended)
 
-2.  **Create a Python virtual environment:**
+Choose the script for your operating system. These scripts will install necessary system dependencies, create a Python virtual environment (`venv`), and install all required Python packages.
+
+**For macOS:**
+1. Make the script executable:
+   ```bash
+   chmod +x setup_mac.sh
+   ```
+2. Run the script:
+   ```bash
+   ./setup_mac.sh
+   ```
+
+**For Ubuntu:**
+1. Make the script executable:
+   ```bash
+   chmod +x setup_ubuntu.sh
+   ```
+2. Run the script:
+   ```bash
+   ./setup_ubuntu.sh
+   ```
+
+After the setup is complete, follow the activation instructions printed by the script to start using the application.
+
+---
+
+### Manual Installation
+
+If you prefer to set up the environment manually, follow these steps.
+
+1.  **Install System Dependencies:**
+    *   **On macOS:** You need [Homebrew](https://brew.sh/).
+        ```bash
+        brew install portaudio
+        ```
+    *   **On Ubuntu:**
+        ```bash
+        sudo apt-get update
+        sudo apt-get install -y portaudio19-dev libbluetooth-dev python3-venv
+        ```
+
+2.  **Create and Activate Virtual Environment:**
     ```bash
+    # Navigate to the project directory
+    cd /path/to/HCS_ver4.0
+
+    # Create a virtual environment
     python3 -m venv venv
+
+    # Activate it
+    source venv/bin/activate
     ```
 
-3.  **Activate the virtual environment:**
-    *   On macOS/Linux:
-        ```bash
-        source venv/bin/activate
-        ```
-    *   On Windows:
-        ```bash
-        .\venv\Scripts\activate
-        ```
-
-4.  **Install required dependencies:**
-    The project uses several external libraries. Based on observed dependencies, these include:
+3.  **Install Python Dependencies:**
+    With the virtual environment activated, install all required packages from the `requirements.txt` file.
     ```bash
-    pip install matplotlib torch bleak opencv-python sounddevice numpy
+    pip install -r requirements.txt
     ```
-    *(Note: If you encounter issues with `numpy` during installation, it might be due to a conflict with a system-installed version. Using a virtual environment typically resolves this. If problems persist, consider uninstalling a system `numpy` if feasible, or ensure your `pip` command points to the virtual environment's `pip`.)*
 
 ## Usage
 
-After setting up the environment and installing dependencies:
+After setting up the environment and activating it (`source venv/bin/activate`):
 
 1.  **Run the main application:**
     ```bash
@@ -54,21 +88,22 @@ After setting up the environment and installing dependencies:
     ```
     *(The specific functionality will depend on the implementation within `main.py` and other modules.)*
 
+2.  **Deactivate the environment** when you are finished:
+    ```bash
+    deactivate
+    ```
+
 ## Configuration
 
 *   **`config.py`:** Contains general configuration settings for the application.
 *   **`config_heartrate_prosody.json`:** Likely holds specific parameters related to heart rate and prosody analysis. You may need to adjust these files to suit your specific use case or hardware setup.
 
-## Project Structure (Inferred)
+## Project Structure
 
 *   `main.py`: The main entry point of the application.
 *   `gui.py`: Handles the graphical user interface.
 *   `audio_processing.py`: Contains logic for processing audio input.
-*   `polar_monitor.py`: Potentially interfaces with Polar heart rate sensors.
-*   `conversation_manager.py`: Manages the flow and logic of human-computer conversations.
-*   `config.py`, `config_heartrate_prosody.json`: Configuration files.
-*   `logger_utils.py`: Utilities for logging.
-*   `.gitignore`: Specifies files and directories to be ignored by Git (e.g., `venv/`, `__pycache__/`, `build/`, `dist/`).
+*   ... and other project files.
 
 ## Contributing
 
