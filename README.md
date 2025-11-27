@@ -4,6 +4,10 @@
 
 This project, `HCS_ver4.0`, appears to be a Human Computer System focusing on the analysis of heart rate data and prosody (speech rhythm, intonation, stress) to understand human states or interactions. It likely integrates various modules for audio processing, physiological monitoring, and conversational management, potentially with a graphical user interface.
 
+## Version
+
+v1.0.0
+
 ## Features (Inferred)
 
 *   **Heart Rate Monitoring:** Integration with physiological sensors (e.g., Polar devices via `polar_monitor.py`).
