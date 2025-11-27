@@ -6,7 +6,7 @@ This project, `HCS_ver4.0`, appears to be a Human Computer System focusing on th
 
 ## Version
 
-v1.0.0
+v1.0.1
 
 ## Features (Inferred)
 
