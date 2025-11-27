@@ -568,12 +568,6 @@ class Application(tk.Tk):
         except tk.TclError:
             pass
 
-    def _update_button_states(self):
-        try:
-            if self.is_processing or self.is_conversing or self.is_measuring_baseline:
-                self.tts_test_button.config(state=tk.DISABLED)
-                self.start_conversation_button.config(state=tk.DISABLED)
-
     def on_tts_test_button_clicked(self):
         if self.is_processing or self.is_conversing or self.is_measuring_baseline:
             return
