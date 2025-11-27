@@ -278,23 +278,20 @@ class Application(tk.Tk):
         button_frame.columnconfigure(4, weight=1)
         button_frame.columnconfigure(5, weight=1)
 
-        self.record_button = ttk.Button(button_frame, text="録音 (Record)", command=self.on_record_button_clicked)
-        self.record_button.grid(row=0, column=0, padx=5, pady=2, sticky="ew")
-
         self.tts_test_button = ttk.Button(button_frame, text="TTSテスト (心拍連動)", command=self.on_tts_test_button_clicked)
-        self.tts_test_button.grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        self.tts_test_button.grid(row=0, column=0, padx=5, pady=2, sticky="ew") # Shifted to column 0
 
         self.start_conversation_button = ttk.Button(button_frame, text="会話開始 (Start Conversation)", command=self.start_conversation)
-        self.start_conversation_button.grid(row=0, column=2, padx=5, pady=2, sticky="ew")
+        self.start_conversation_button.grid(row=0, column=1, padx=5, pady=2, sticky="ew") # Shifted to column 1
 
         self.stop_conversation_button = ttk.Button(button_frame, text="会話停止 (Stop Conversation)", command=self.stop_conversation)
-        self.stop_conversation_button.grid(row=0, column=3, padx=5, pady=2, sticky="ew")
+        self.stop_conversation_button.grid(row=0, column=2, padx=5, pady=2, sticky="ew") # Shifted to column 2
 
         self.save_config_button = ttk.Button(button_frame, text="設定保存 (Save Config)", command=self.save_config)
-        self.save_config_button.grid(row=0, column=4, padx=5, pady=2, sticky="ew")
+        self.save_config_button.grid(row=0, column=3, padx=5, pady=2, sticky="ew") # Shifted to column 3
 
         self.baseline_button = ttk.Button(button_frame, text="安静時心拍測定開始", command=self.start_baseline_measurement)
-        self.baseline_button.grid(row=0, column=5, padx=5, pady=2, sticky="ew")
+        self.baseline_button.grid(row=0, column=4, padx=5, pady=2, sticky="ew") # Shifted to column 4
 
         baseline_frame = ttk.Frame(main_frame)
         baseline_frame.grid(row=row_idx + 2, column=0, columnspan=5, sticky="ew", padx=5, pady=(0, 5))
@@ -557,14 +554,12 @@ class Application(tk.Tk):
     def _update_button_states(self):
         try:
             if self.is_processing or self.is_conversing or self.is_measuring_baseline:
-                self.record_button.config(state=tk.DISABLED)
                 self.tts_test_button.config(state=tk.DISABLED)
                 self.start_conversation_button.config(state=tk.DISABLED)
                 self.stop_conversation_button.config(state=tk.NORMAL if self.is_conversing else tk.DISABLED)
                 self.save_config_button.config(state=tk.DISABLED)
                 self.baseline_button.config(state=tk.DISABLED if self.is_measuring_baseline else tk.NORMAL)
             else:
-                self.record_button.config(state=tk.NORMAL)
                 self.tts_test_button.config(state=tk.NORMAL)
                 self.start_conversation_button.config(state=tk.NORMAL)
                 self.stop_conversation_button.config(state=tk.DISABLED)
@@ -573,34 +568,11 @@ class Application(tk.Tk):
         except tk.TclError:
             pass
 
-    def on_record_button_clicked(self):
-        if self.is_processing or self.is_conversing or self.is_measuring_baseline:
-            return
-        self.is_processing = True
-        self._update_button_states()
-        threading.Thread(target=self._record_and_process, daemon=True).start()
-
-    def _record_and_process(self):
+    def _update_button_states(self):
         try:
-            self.set_status("録音中...", "orange")
-            ok, rec_start, rec_end = self.audio.record_audio(filename=config.INPUT_WAV_FILE)
-            if not ok:
-                self.set_status("録音に失敗しました。", "red")
-                return
-
-            recognized_text = self.audio.speech_to_text(config.INPUT_WAV_FILE)
-            if recognized_text:
-                self.append_log(f"[User] {recognized_text}")
-                self.set_status("音声認識完了。TTS応答を生成中...", "orange")
-                reply_text = self.conversation_manager.generate_reply(recognized_text, self.system_prompt.get('1.0', tk.END).strip())
-                self.append_log(f"[Assistant] {reply_text}")
-                self.audio.text_to_speech(reply_text, filename=config.OUTPUT_WAV_FILE)
-                self.set_status("録音と応答が完了しました。", "green")
-            else:
-                self.set_status("音声が認識できませんでした。", "red")
-        finally:
-            self.is_processing = False
-            self._update_button_states()
+            if self.is_processing or self.is_conversing or self.is_measuring_baseline:
+                self.tts_test_button.config(state=tk.DISABLED)
+                self.start_conversation_button.config(state=tk.DISABLED)
 
     def on_tts_test_button_clicked(self):
         if self.is_processing or self.is_conversing or self.is_measuring_baseline:
