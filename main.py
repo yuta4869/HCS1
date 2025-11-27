@@ -68,7 +68,7 @@ def main():
     print("faster-whisperモデルのロードを開始します...")
     try:
         # Determine device and compute type for faster-whisper
-        model_name = "small" # Or make this configurable
+        model_name = config.WHISPER_MODEL_NAME # Read model name from config
         device = "cuda" if torch.cuda.is_available() else "cpu"
         
         # Allow overriding device via environment variable (useful for testing)
