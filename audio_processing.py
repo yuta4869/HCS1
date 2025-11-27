@@ -675,7 +675,7 @@ class AudioProcessor:
 
             segments, info = self.whisper_model.transcribe(
                 audio_filename,
-                beam_size=config.WHISPER_BEAM_SIZE
+                beam_size=config.WHISPER_TRANSCRIBE_BEAM_SIZE
             )
             text = "".join(segment.text for segment in segments)
             cleaned_text = self._clean_text(text)
