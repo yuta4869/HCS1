@@ -55,6 +55,7 @@ class Application(tk.Tk):
         self.is_conversing: bool = False
         self.is_measurement_stopped_by_user: bool = False
         self.is_measuring_baseline: bool = False
+        self._closing: bool = False # Flag to indicate app is shutting down
 
         self.title("Heart-Linked Voice Assistant (HCS)")
         self.geometry("1200x900")
@@ -820,12 +821,15 @@ class Application(tk.Tk):
             pass
 
     def update_hr_status_labels_periodically(self):
+        if self._closing:
+            return
         self.update_hr_status_labels()
         self.after(1000, self.update_hr_status_labels_periodically)
 
     def on_closing(self):
         if messagebox.askokcancel("Quit", "アプリケーションを終了しますか？"):
             try:
+                self._closing = True # Signal that we are shutting down
                 self.is_conversing = False
                 self.conversation_manager.stop_conversation()
                 self.hr_monitor.stop_monitoring()
