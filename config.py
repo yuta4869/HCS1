@@ -20,6 +20,8 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- General Configuration ---
+WHISPER_MODEL_NAME = "small" # Options: "tiny", "base", "small", "medium", "large" (and their .en variants)
+WHISPER_BEAM_SIZE = 5       # For faster-whisper. Smaller values (e.g., 1 or 3) can be faster but less accurate.
 CONFIG_FILE = resource_path("config_heartrate_prosody.json")
 LOG_DIR = os.path.join(os.path.expanduser("~"), "/Users/user/Research/HCS_ver4.0", "Logs")
 
