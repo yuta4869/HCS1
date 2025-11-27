@@ -1,7 +1,35 @@
 # main.py
-
 import os
 import sys
+
+# --- Bootstrap to ensure the correct virtual environment is used ---
+# This is a workaround to help users who are not activating the venv.
+# It makes the script "magically" work even if called with the wrong python.
+try:
+    # The absolute path to the project's root directory
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    # The expected path to the virtual environment's python executable
+    venv_python_path = os.path.join(project_root, ".venv", "bin", "python")
+
+    # The path of the python executable that is currently running this script
+    current_python_path = sys.executable
+
+    # If the current python is not the one from our venv, and the venv exists
+    if current_python_path != venv_python_path and os.path.exists(venv_python_path):
+        print("---")
+        print("WARNING: Incorrect Python interpreter detected.")
+        print(f"  Running with: {current_python_path}")
+        print(f"  Expected:     {venv_python_path}")
+        print("Attempting to re-launch with the correct interpreter from the virtual environment...")
+        print("---")
+        # Replace the current process with the correct one
+        os.execv(venv_python_path, [venv_python_path, __file__] + sys.argv[1:])
+except Exception as e:
+    # If anything goes wrong, print a warning and continue,
+    # allowing the original error (e.g., ModuleNotFoundError) to occur naturally.
+    print(f"WARNING: An error occurred in the bootstrap section: {e}")
+# --- End of Bootstrap ---
+
 import queue
 import tkinter as tk # For messagebox, though it's often part of Application
 from tkinter import messagebox
