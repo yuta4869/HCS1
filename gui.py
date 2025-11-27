@@ -78,8 +78,8 @@ class Application(tk.Tk):
         self._create_widgets()
         self._update_button_states()
         self._setup_logger_thread()
-        self.after(1000, self._init_hr_connection)
-        self.after(1000, self._init_h10_connection)
+        # self.after(1000, self._init_hr_connection) # Auto-connection removed
+        # self.after(1000, self._init_h10_connection) # Auto-connection removed
 
     def _setup_style(self):
         style = ttk.Style(self)
@@ -772,28 +772,6 @@ class Application(tk.Tk):
     def _setup_logger_thread(self):
         self.logger_thread = LoggingThread(self.log_queue)
         self.logger_thread.start()
-
-    def _init_hr_connection(self):
-        if not self.hr_monitor.is_connected:
-            print("Attempting to auto-connect Verity Sense...")
-            try:
-                self.hr_monitor.start_monitoring()
-                self.set_status("Verity Sense auto-connected.", "green")
-            except Exception as e:
-                print(f"Auto-connection for Verity Sense failed: {e}")
-                self.set_status("Verity Sense auto-connection failed.", "red")
-        self.update_hr_status_labels()
-
-    def _init_h10_connection(self):
-        if not self.h10_monitor.is_connected:
-            print("Attempting to auto-connect H10...")
-            try:
-                self.h10_monitor.start_monitoring()
-                self.set_status("H10 auto-connected.", "green")
-            except Exception as e:
-                print(f"Auto-connection for H10 failed: {e}")
-                self.set_status("H10 auto-connection failed.", "red")
-        self.update_hr_status_labels()
 
     def toggle_hr_connection(self):
         if self.hr_monitor.is_connected:
