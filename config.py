@@ -21,7 +21,7 @@ def resource_path(relative_path):
 
 # --- General Configuration ---
 CONFIG_FILE = resource_path("config_heartrate_prosody.json")
-LOG_DIR = os.path.join(os.path.expanduser("~"), "/Users/user/Documents/HCS_ver3.10", "Logs")
+LOG_DIR = os.path.join(os.path.expanduser("~"), "/Users/user/Documents/HCS_ver4.0", "Logs")
 
 # --- Log File Templates ---
 CONVERSATION_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{timestamp}.txt")
@@ -71,6 +71,8 @@ ECG_WRITE = bytearray([
 # --- Baseline Measurement Settings ---
 DEFAULT_BASELINE_MEASUREMENT_DURATION = 30  # seconds
 MIN_SAMPLES_FOR_MEDIAN = 5  # Minimum HR samples needed to calculate median
+# v4.0 以降のGUIとの互換用（旧名→新名の橋渡し）
+BASELINE_MEASUREMENT_DURATION = DEFAULT_BASELINE_MEASUREMENT_DURATION
 
 # --- Logger Names ---
 LOGGER_HR_PROSODY = "hr_prosody_verity"

@@ -2,25 +2,64 @@
 
 import asyncio
 import datetime
-import logging # For creating LogRecord instances
-import queue # For type hinting log_queue_ref
+import logging
+import queue
 import statistics
 import threading
-from typing import Optional, List, Any, Dict # Added Dict for clarity
+from typing import Optional, List, Any, Dict
 
 from bleak import BleakClient, BleakScanner
 
-# Assuming config.py and logger_utils.py are in the same directory or accessible in PYTHONPATH
-# If they are in the same package (e.g., a directory with __init__.py), use relative imports:
-# from . import config
-# from .logger_utils import get_timestamped_log_path
-# For simplicity here, using direct imports, assuming PYTHONPATH is set up or they are top-level.
 import config
-from logger_utils import get_timestamped_log_path # If get_timestamped_log_path is in logger_utils
+from logger_utils import get_timestamped_log_path
 
-class HeartRateMonitor:
+
+class MonitorBase:
+    """Base class for HeartRateMonitor and H10Monitor to manage an asyncio event loop in a separate thread."""
+    def __init__(self):
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: Optional[threading.Thread] = None
+        self._thread_started = threading.Event()
+        self._stop_thread = threading.Event()
+
+    def _start_asyncio_thread(self):
+        if self._thread is None or not self._thread.is_alive():
+            self._stop_thread.clear()
+            self._thread_started.clear()
+            self._thread = threading.Thread(target=self._run_asyncio_loop, daemon=True)
+            self._thread.start()
+            self._thread_started.wait(timeout=5) # Wait for the loop to start
+            if not self._loop:
+                raise RuntimeError("Asyncio loop did not start in time.")
+
+    def _run_asyncio_loop(self):
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._thread_started.set() # Signal that the loop has started
+        self._loop.run_forever()
+
+    def _stop_asyncio_thread(self):
+        if self._loop and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+            self._thread.join(timeout=5)
+            self._loop.close()
+            self._loop = None
+            self._thread = None
+
+    def _run_coroutine_in_thread(self, coro):
+        if not self._loop or not self._loop.is_running():
+            raise RuntimeError("Asyncio loop is not running.")
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        return future.result() # Blocks until the coroutine is done
+
+    def __del__(self):
+        self._stop_asyncio_thread()
+
+
+class HeartRateMonitor(MonitorBase):
     """Monitors heart rate from Verity Sense and manages data logging via queue."""
     def __init__(self, log_queue_ref: queue.Queue):
+        super().__init__()
         self.current_hr: int = 0
         self.reference_hr: int = 70 # Default, can be updated
         self.last_timestamp: Optional[datetime.datetime] = None
@@ -36,10 +75,31 @@ class HeartRateMonitor:
         self.baseline_hr_samples: List[int] = []
         self.is_measuring_baseline: bool = False
 
+    def start_monitoring(self):
+        """Synchronous wrapper to start the asynchronous connection."""
+        self._start_asyncio_thread()
+        try:
+            self.is_connected = self._run_coroutine_in_thread(self.connect_to_device())
+        except Exception as e:
+            print(f"Error starting Verity Sense monitoring: {e}")
+            self.is_connected = False
+        return self.is_connected
+
+    def stop_monitoring(self):
+        """Synchronous wrapper to stop the asynchronous connection."""
+        try:
+            if self.is_connected:
+                self._run_coroutine_in_thread(self.disconnect())
+        except Exception as e:
+            print(f"Error stopping Verity Sense monitoring: {e}")
+        finally:
+            self.is_connected = False
+            self._stop_asyncio_thread() # Stop the asyncio loop for this monitor
+
+
     def initialize_hr_prosody_csv(self) -> None:
         """Stores the intended path for the HR/Prosody log and signals logger thread."""
         try:
-            # Use get_timestamped_log_path from logger_utils
             self.hr_prosody_filepath = get_timestamped_log_path(config.HR_PROSODY_CSV_TEMPLATE)
             header = ["Timestamp", "Heart Rate (BPM)", "Prosody Level Applied", "Reference HR"]
             self.log_queue.put(("add_handler", config.LOGGER_HR_PROSODY, self.hr_prosody_filepath, header))
@@ -274,9 +334,10 @@ class HeartRateMonitor:
             return None
 
 
-class H10Monitor:
+class H10Monitor(MonitorBase):
     """Monitors ECG and HR from Polar H10 and manages data logging via queue."""
     def __init__(self, log_queue_ref: queue.Queue):
+        super().__init__()
         self.is_connected: bool = False
         self.client: Optional[BleakClient] = None
         self.stop_event = threading.Event()
@@ -287,6 +348,36 @@ class H10Monitor:
         self.log_queue: queue.Queue = log_queue_ref
         self.h10_ecg_session_filepath: str = ""
         self.h10_hr_session_filepath: str = ""
+
+    def start_monitoring(self):
+        """Synchronous wrapper to start the asynchronous connection."""
+        self._start_asyncio_thread()
+        try:
+            self.is_connected = self._run_coroutine_in_thread(self.connect_to_device())
+        except Exception as e:
+            print(f"Error starting H10 monitoring: {e}")
+            self.is_connected = False
+        return self.is_connected
+
+    def stop_monitoring(self):
+        """Synchronous wrapper to stop the asynchronous connection."""
+        try:
+            if self.is_connected:
+                self._run_coroutine_in_thread(self.disconnect())
+        except Exception as e:
+            print(f"Error stopping H10 monitoring: {e}")
+        finally:
+            self.is_connected = False
+            self._stop_asyncio_thread() # Stop the asyncio loop for this monitor
+
+    def get_current_rr(self) -> int:
+        """Gets the current RR interval (which is essentially HR for H10)."""
+        with self.hr_lock:
+            # H10 provides HR, not RR interval directly in this context.
+            # Assuming 'RR interval (ms)' label in GUI should show HR in BPM.
+            # If actual RR intervals are needed, a different characteristic or calculation would be required.
+            return self.current_h10_hr
+
 
     def initialize_h10_ecg_session_csv(self, filepath: str):
         """Stores the intended path for the H10 ECG session log and signals logger thread."""

@@ -1,13 +1,14 @@
 {
-    "reference_hr": 59,
+    "reference_hr": 70,
     "prosody": {
-        "intonation": 1.0,
-        "pitch": 0.0,
-        "speed": 1.0,
-        "energy": 1.0,
-        "pause_duration": 1.0
+        "intonation_scale": 1.0,
+        "pitch_scale": 0.0,
+        "speed_scale": 1.0,
+        "energy_scale": 1.0,
+        "pause_duration_scale": 1.0,
+        "hfb_target_param": "intonation"
     },
     "system_prompt": "会話をしてください。\n会話は絶対に短く行い、50文字を越えないで。\n会話には共感して。\n日本語で会話して、アルファベットの単語はそのままアルファベットで読むのではなくて英語の読み方をカタカナにして出力して。\nURL、ファイル名、箇条書きなどの会話できなくなるものは絶対に使わないで。",
-    "speaker_id": 8,
+    "speaker_id": 2,
     "baseline_measurement_duration": 180
 }
