@@ -21,7 +21,7 @@ def resource_path(relative_path):
 
 # --- General Configuration ---
 CONFIG_FILE = resource_path("config_heartrate_prosody.json")
-LOG_DIR = os.path.join(os.path.expanduser("~"), "/Users/user/Documents/HCS_ver4.0", "Logs")
+LOG_DIR = os.path.join(os.path.expanduser("~"), "/Users/user/Research/HCS_ver4.0", "Logs")
 
 # --- Log File Templates ---
 CONVERSATION_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{timestamp}.txt")
