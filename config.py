@@ -25,7 +25,7 @@ WHISPER_TRANSCRIBE_BEAM_SIZE = 5       # For faster-whisper. Smaller values (e.g
 INPUT_WAV_FILE = "input.wav"           # Filename for recorded audio
 OUTPUT_WAV_FILE = "output.wav"         # Filename for synthesized audio
 CONFIG_FILE = resource_path("config_heartrate_prosody.json")
-LOG_DIR = os.path.join(os.path.expanduser("~"), "/Users/user/Research/HCS_ver4.0", "Logs")
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
 # --- Log File Templates ---
 CONVERSATION_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{timestamp}.txt")

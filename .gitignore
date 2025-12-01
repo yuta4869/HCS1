@@ -10,7 +10,7 @@ dist/
 *.spec
 
 # Log files
-Logs/
+
 
 # Archives and sound files
 *.zip

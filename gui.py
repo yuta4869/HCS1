@@ -56,6 +56,7 @@ class Application(tk.Tk):
         self.is_measurement_stopped_by_user: bool = False
         self.is_measuring_baseline: bool = False
         self._closing: bool = False # Flag to indicate app is shutting down
+        self._after_ids: List[str] = [] # List to store IDs of scheduled 'after' calls
 
         self.title("Heart-Linked Voice Assistant (HCS)")
         self.geometry("1200x900")
@@ -321,7 +322,7 @@ class Application(tk.Tk):
         )
         self.status_label.grid(row=0, column=0, sticky="ew", padx=5, pady=2)
 
-        self.after(1000, self.update_hr_status_labels_periodically)
+        self._schedule_after(1000, self.update_hr_status_labels_periodically)
 
     def create_parameter_row(self, parent, param_name: str, label_text: str, tk_var_attr: str, value_label_attr: str, row_idx: int):
         tk_var = tk.DoubleVar(value=self.prosody.get_parameter(param_name))
@@ -360,7 +361,7 @@ class Application(tk.Tk):
                 self.status_label.configure(foreground=color)
             except tk.TclError:
                 pass
-        self.after(0, _update_status)
+        self._schedule_after(0, _update_status)
 
     def append_log(self, text: str) -> None:
         def _append():
@@ -372,7 +373,7 @@ class Application(tk.Tk):
             except tk.TclError:
                 pass
 
-        self.after(0, _append)
+        self._schedule_after(0, _append)
 
     def on_speaker_selected(self, event=None) -> None:
         selected_name = self.speaker_var.get()
@@ -478,7 +479,7 @@ class Application(tk.Tk):
             value = self.prosody.get_parameter(param_name)
             value_label_widget = getattr(self, f"{param_name}_value_label", None)
             if value_label_widget and value_label_widget.winfo_exists():
-                self.after(0, lambda w=value_label_widget, v=value: w.config(text=f"{v:.2f}"))
+                self._schedule_after(0, lambda w=value_label_widget, v=value: w.config(text=f"{v:.2f}"))
         except tk.TclError:
             pass
         except Exception as e_upd_param_disp:
@@ -849,12 +850,19 @@ class Application(tk.Tk):
         if self._closing:
             return
         self.update_hr_status_labels()
-        self.after(1000, self.update_hr_status_labels_periodically)
+        self._schedule_after(1000, self.update_hr_status_labels_periodically)
 
     def on_closing(self):
         if messagebox.askokcancel("Quit", "アプリケーションを終了しますか？"):
             try:
                 self._closing = True # Signal that we are shutting down
+                # Cancel all pending after calls
+                for after_id in list(self._after_ids): # Iterate over a copy to allow modification
+                    try:
+                        self.after_cancel(after_id)
+                        self._after_ids.remove(after_id) # Remove after successful cancellation
+                    except Exception as e:
+                        print(f"Error cancelling after_id {after_id}: {e}")
                 self.is_conversing = False
                 self.conversation_manager.stop_conversation()
                 self.hr_monitor.stop_monitoring()
@@ -864,6 +872,14 @@ class Application(tk.Tk):
             except Exception as e:
                 print(f"Error during shutdown: {e}")
             self.destroy()
+
+    def _schedule_after(self, delay_ms: int, callback: Any) -> Optional[str]:
+        """Schedules a callback using self.after and stores its ID for later cancellation."""
+        if not self._closing:
+            after_id = self.after(delay_ms, callback)
+            self._after_ids.append(after_id)
+            return after_id
+        return None
 
 
 def main():
