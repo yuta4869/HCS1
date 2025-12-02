@@ -2,28 +2,30 @@
 
 ## Project Overview
 
-This project, `HCS_ver4.0`, appears to be a Human Computer System focusing on the analysis of heart rate data and prosody (speech rhythm, intonation, stress) to understand human states or interactions. It likely integrates various modules for audio processing, physiological monitoring, and conversational management, potentially with a graphical user interface.
+This project, `HCS_ver4.0`, is a Human-Computer System focusing on the analysis of heart rate data and prosody (speech rhythm, intonation, stress) to understand human states or interactions. It integrates modules for real-time audio processing, physiological monitoring, and conversational management with a graphical user interface.
 
 ## Version
 
-v1.0.1
+v0.2.0
 
-## Features (Inferred)
+## Features
 
-*   **Heart Rate Monitoring:** Integration with physiological sensors (e.g., Polar devices via `polar_monitor.py`).
-*   **Audio Processing:** Analysis of speech prosody, potentially through `audio_processing.py`.
-*   **Conversation Management:** Logic for managing interactions, possibly handled by `conversation_manager.py`.
-*   **Graphical User Interface (GUI):** A user-friendly interface built with `gui.py`.
-*   **Logging:** Utilities for logging various data and events (`logger_utils.py`).
+*   **Real-time Transcription:** Continuous audio streaming from the microphone with real-time speech-to-text using `faster-whisper`.
+*   **Voice Activity Detection (VAD):** Automatically detects the start and end of speech to create complete utterances for processing.
+*   **Heart Rate Monitoring:** Integration with Polar physiological sensors (via `polar_monitor.py`).
+*   **Heart-rate feedback (HFB):** Modulates AI voice prosody based on user heart rate.
+*   **Conversation Management:** Manages conversation history and generates replies (currently placeholder, intended for LLM integration).
+*   **Graphical User Interface (GUI):** A user-friendly interface built with Tkinter (`gui.py`).
+*   **Data Logging:** Comprehensive logging for conversations, heart rate, and other events for research purposes.
 *   **Configuration:** Flexible configuration options via `config.py` and `config_heartrate_prosody.json`.
 
 ## Setup and Installation
 
-This project requires Python 3.x and platform-specific system libraries. Automated setup scripts are provided for convenience.
+This project requires Python 3.8+ and platform-specific system libraries. Automated setup scripts are provided for convenience.
 
 ### Automated Setup (Recommended)
 
-Choose the script for your operating system. These scripts will install necessary system dependencies, create a Python virtual environment (`venv`), and install all required Python packages.
+Choose the script for your operating system. These scripts will install necessary system dependencies, create a Python virtual environment (`.venv`), and install all required Python packages.
 
 **For macOS:**
 1. Make the script executable:
@@ -65,54 +67,53 @@ If you prefer to set up the environment manually, follow these steps.
         ```
 
 2.  **Create and Activate Virtual Environment:**
+    It is crucial to name the virtual environment `.venv` for the application's bootstrap script to work correctly.
     ```bash
     # Navigate to the project directory
-    cd /path/to/HCS_ver4.0
+    cd /path/to/HCS_ver4.0/HCS1
 
-    # Create a virtual environment
-    python3 -m venv venv
+    # Create a virtual environment named .venv
+    python3 -m venv .venv
 
     # Activate it
-    source venv/bin/activate
+    source .venv/bin/activate
     ```
 
 3.  **Install Python Dependencies:**
-    With the virtual environment activated, install all required packages from the `requirements.txt` file.
+    With the virtual environment activated, install all required packages from `requirements.txt`.
     ```bash
+    pip install --upgrade pip
     pip install -r requirements.txt
     ```
 
+### Environment Variable
+
+This application uses the OpenAI API for generating replies. You must set an environment variable with your API key.
+
+```bash
+export OPENAI_API_KEY="your_api_key_here"
+```
+You can add this line to your shell's startup file (e.g., `~/.bashrc` or `~/.zshrc`) to set it automatically.
+
 ## Usage
 
-After setting up the environment and activating it (`source venv/bin/activate`):
+After setting up the environment and activating it (`source .venv/bin/activate`):
 
 1.  **Run the main application:**
     ```bash
-    python main.py
+    python3 main.py
     ```
-    *(The specific functionality will depend on the implementation within `main.py` and other modules.)*
+    The application GUI will launch. The system will be in a stand-by state, continuously listening to the microphone.
 
-2.  **Deactivate the environment** when you are finished:
+2.  **Start a conversation:**
+    Click the "Start Conversation" button. When you speak, the system will detect your utterance, transcribe it, and generate a response.
+
+3.  **Deactivate the environment** when you are finished:
     ```bash
     deactivate
     ```
 
 ## Configuration
 
-*   **`config.py`:** Contains general configuration settings for the application.
-*   **`config_heartrate_prosody.json`:** Likely holds specific parameters related to heart rate and prosody analysis. You may need to adjust these files to suit your specific use case or hardware setup.
-
-## Project Structure
-
-*   `main.py`: The main entry point of the application.
-*   `gui.py`: Handles the graphical user interface.
-*   `audio_processing.py`: Contains logic for processing audio input.
-*   ... and other project files.
-
-## Contributing
-
-(If this were an open-source project, instructions on how to contribute would go here.)
-
-## License
-
-(Specify the project's license here.)
+*   **`config.py`:** Contains general configuration for the application, including Whisper model settings, compute types, and logging options.
+*   **`config_heartrate_prosody.json`:** Holds specific parameters related to heart rate and prosody analysis.

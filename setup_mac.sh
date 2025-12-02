@@ -17,18 +17,18 @@ echo "Installing system dependencies (portaudio)..."
 brew install portaudio
 
 # --- Step 3: Create Python Virtual Environment ---
-echo "Creating Python virtual environment in 'venv'..."
+echo "Creating Python virtual environment in '.venv'..."
 if ! command -v python3 &> /dev/null; then
     echo "Python 3 not found. Please install it first."
     exit 1
 fi
-python3 -m venv venv
+python3 -m .venv .venv
 
 # --- Step 4: Install Python Packages ---
 echo "Installing Python packages from requirements.txt..."
-# Ensure we use the pip from the created venv
-./venv/bin/pip install --upgrade pip
-./venv/bin/pip install -r requirements.txt
+# Ensure we use the pip from the created .venv
+./.venv/bin/pip install --upgrade pip
+./.venv/bin/pip install -r requirements.txt
 
 # --- Final Step: Instructions ---
 echo ""
@@ -37,10 +37,10 @@ echo "Setup complete!"
 echo ""
 echo "To run the application, follow these steps:"
 echo "1. Activate the virtual environment:"
-echo "   source venv/bin/activate"
+echo "   source .venv/bin/activate"
 echo ""
 echo "2. Run the main script:"
-echo "   python main.py"
+echo "   python3 main.py"
 echo ""
 echo "3. When you are finished, deactivate the environment:"
 echo "   deactivate"
