@@ -282,7 +282,7 @@ class AudioProcessor:
         self.sample_rate: int = 16000
         self.channels: int = 1
         self.chunk_size: int = 1024
-        self.silent_threshold: float = 0.03
+        self.silent_threshold: float = 0.02
         self.min_record_seconds: float = 1.0 # Will be used for VAD
         self.required_silent_seconds: float = 1.3
         self.min_audio_length: float = 0.3
@@ -430,9 +430,10 @@ class AudioProcessor:
         temp_wav_path = os.path.join(config.UTTERANCE_WAV_DIR, "temp_utterance.wav")
 
         try:
+            print(f"[_process_utterance] audio_data dtype: {audio_data.dtype}")
             print("[_process_utterance] Saving temporary WAV file...")
             os.makedirs(os.path.dirname(temp_wav_path), exist_ok=True) # Ensure directory exists
-            sf.write(temp_wav_path, audio_data, self.sample_rate)
+            sf.write(temp_wav_path, audio_data, self.sample_rate, format='WAV', subtype='PCM_16')
             print(f"[_process_utterance] Saved to {temp_wav_path}")
 
             print("[_process_utterance] Starting transcription...")
