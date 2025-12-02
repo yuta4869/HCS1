@@ -80,6 +80,8 @@ class Application(tk.Tk):
         self._create_widgets()
         self._update_button_states()
         self._setup_logger_thread()
+        self.audio.start_streaming_input()
+        self.audio.start_vad_loop()
         # self.after(1000, self._init_hr_connection) # Auto-connection removed
         # self.after(1000, self._init_h10_connection) # Auto-connection removed
 
@@ -322,7 +324,32 @@ class Application(tk.Tk):
         )
         self.status_label.grid(row=0, column=0, sticky="ew", padx=5, pady=2)
 
+        # --- Interim Transcription Display ---
+        self.interim_text_var = tk.StringVar(value="")
+        interim_label = ttk.Label(
+            main_frame,
+            textvariable=self.interim_text_var,
+            style='Status.TLabel',
+            anchor="w",
+            foreground="gray"
+        )
+        interim_label.grid(row=row_idx + 4, column=0, columnspan=5, sticky="ew", padx=5, pady=2)
+
         self._schedule_after(1000, self.update_hr_status_labels_periodically)
+        self._schedule_after(100, self._check_interim_transcription_queue)
+
+    def _check_interim_transcription_queue(self):
+        """Periodically check the interim transcription queue and update the UI."""
+        try:
+            while not self.audio.interim_transcription_queue.empty():
+                interim_text = self.audio.interim_transcription_queue.get_nowait()
+                self.interim_text_var.set(interim_text)
+        except queue.Empty:
+            pass
+        finally:
+            if not self._closing:
+                self._schedule_after(200, self._check_interim_transcription_queue)
+
 
     def create_parameter_row(self, parent, param_name: str, label_text: str, tk_var_attr: str, value_label_attr: str, row_idx: int):
         tk_var = tk.DoubleVar(value=self.prosody.get_parameter(param_name))
@@ -867,6 +894,8 @@ class Application(tk.Tk):
                 self.conversation_manager.stop_conversation()
                 self.hr_monitor.stop_monitoring()
                 self.h10_monitor.stop_monitoring()
+                self.audio.stop_streaming_input()
+                self.audio.stop_vad_loop()
                 if self.logger_thread:
                     self.logger_thread.stop()
             except Exception as e:

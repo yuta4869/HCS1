@@ -230,34 +230,23 @@ class ConversationManager:
 
     def conversation_loop(self) -> None:
         """
-        録音→文字起こし→応答生成→音声出力、をくり返す簡易会話ループ。
+        VADによって確定されたテキストをキューから取得し、応答生成→音声出力、をくり返す会話ループ。
         Application 側から別すれっどで呼び出されることを想定。
         """
         self._stop_conversation = False
         if self.app is not None:
             try:
-                self.app.set_status("会話ループを開始しました。話しかけてください。", "green")
+                # The VAD loop is now always running, so the user can just speak.
+                self.app.set_status("Ready to talk. Please speak.", "green")
             except Exception:
                 pass
 
         while not self._stop_conversation:
             try:
-                # 入力録音
-                if self.app is not None:
-                    self.app.set_status("録音待機中...", "orange")
-                ok, rec_start, rec_end = self.audio_processor.record_audio()
-                if not ok:
-                    # 中断などを考慮して、少し待って続行
-                    time.sleep(0.5)
-                    continue
-
-                # 文字起こし
-                if self.app is not None:
-                    self.app.set_status("音声認識中...", "orange")
-                user_text = self.audio_processor.speech_to_text("input.wav")
+                # Wait for a finalized text from the VAD loop
+                user_text = self.audio_processor.final_text_queue.get(timeout=1.0)
+                
                 if not user_text:
-                    if self.app is not None:
-                        self.app.append_log("[System] 音声が認識できませんでした。")
                     continue
 
                 if self.app is not None:
@@ -274,24 +263,32 @@ class ConversationManager:
 
                 if self.app is not None:
                     self.app.append_log(f"[Assistant] {reply_text}")
-                    self.app.set_status("応答を音声で再生中...", "green")
+                    self.app.set_status("Generating and playing audio response...", "green")
 
                 # 音声出力
                 self.audio_processor.text_to_speech(reply_text)
+                
+                # After TTS, reset status
+                if self.app is not None:
+                    self.app.set_status("Ready to talk. Please speak.", "green")
 
+            except queue.Empty:
+                # This is normal, just means no one spoke in the last second.
+                # The loop will continue and check the _stop_conversation flag.
+                continue
             except Exception as e:
                 print(f"Error in conversation loop: {e}")
                 if self.app is not None:
                     try:
-                        self.app.set_status(f"会話ループ中にエラー: {e}", "red")
+                        self.app.set_status(f"Error in conversation loop: {e}", "red")
                     except Exception:
                         pass
-                # 大きな例外があった場合はいったん抜ける
+                # On a major error, break the loop
                 break
 
         if self.app is not None:
             try:
-                self.app.set_status("会話ループを終了しました。", "blue")
+                self.app.set_status("Conversation loop stopped.", "blue")
             except Exception:
                 pass
 

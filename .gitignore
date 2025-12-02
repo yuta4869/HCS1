@@ -20,4 +20,4 @@ dist/
 .vscode/
 
 # macOS specific
-.DS_Store
+.DS_Store.venv/

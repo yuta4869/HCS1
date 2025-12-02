@@ -4,3 +4,7 @@ matplotlib
 bleak
 opencv-python
 sounddevice
+faster-whisper
+openai
+soundfile
+requests

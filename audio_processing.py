@@ -257,6 +257,9 @@ class SpeakerSettings:
         return [s['id'] for s in self.speakers]
 
 
+import collections
+
+
 class AudioProcessor:
     def __init__(self,
                  prosody_settings: ProsodySettings,
@@ -278,110 +281,181 @@ class AudioProcessor:
 
         self.sample_rate: int = 16000
         self.channels: int = 1
+        self.chunk_size: int = 1024
         self.silent_threshold: float = 0.03
-        self.min_record_seconds: float = 1.0
+        self.min_record_seconds: float = 1.0 # Will be used for VAD
         self.required_silent_seconds: float = 1.3
         self.min_audio_length: float = 0.3
 
         self.last_hr_after_tts: Optional[int] = None
         self.hr_used_for_last_adjustment: Optional[int] = None
 
-    def record_audio(self, filename: str = "input.wav") -> Tuple[bool, Optional[datetime.datetime], Optional[datetime.datetime]]:
-        audio_q = queue.Queue()
-        self.stop_event.clear()
-        recording_success = False
+        # --- Real-time Transcription / VAD Attributes ---
+        self.audio_q = queue.Queue() # Live audio chunks from stream callback
+        buffer_max_chunks = int(self.sample_rate * config.AUDIO_BUFFER_SECONDS / self.chunk_size)
+        self.audio_buffer = collections.deque(maxlen=buffer_max_chunks) # Not used in VAD loop yet, but kept for now
 
-        rec_start_dt: Optional[datetime.datetime] = None
-        rec_end_dt: Optional[datetime.datetime] = None
+        self.stream_thread = threading.Thread(target=self._stream_input_loop, daemon=True)
+        self.stream_stop_event = threading.Event()
+        
+        self.interim_transcription_queue = queue.Queue() # For GUI
+        self.final_text_queue = queue.Queue() # For ConversationManager
 
-        def callback(indata: np.ndarray, frames: int, time_info, status) -> None:
+        self.vad_thread = threading.Thread(target=self._vad_loop, daemon=True)
+        self.vad_stop_event = threading.Event()
+        self.vad_state: str = "WAITING"
+        self.current_utterance_chunks: List[np.ndarray] = []
+        
+    def start_streaming_input(self):
+        """Starts the continuous audio input stream."""
+        if not self.stream_thread.is_alive():
+            print("Starting continuous audio input stream...")
+            self.stream_stop_event.clear()
+            self.stream_thread.start()
+
+    def stop_streaming_input(self):
+        """Stops the continuous audio input stream."""
+        if self.stream_thread.is_alive():
+            print("Stopping continuous audio input stream...")
+            self.stream_stop_event.set()
+            self.stream_thread.join(timeout=2)
+
+    def _stream_input_loop(self):
+        """The main loop for the audio input stream."""
+        def _stream_callback(indata: np.ndarray, frames: int, time_info, status) -> None:
             if status:
-                print(f"Recording status: {status}", file=sys.stderr)
-            audio_q.put(indata.copy())
+                print(f"Stream status: {status}", file=sys.stderr)
+            self.audio_q.put(indata.copy())
 
         try:
+            print("Audio stream thread started.")
             with sd.InputStream(samplerate=self.sample_rate,
                                 channels=self.channels,
-                                callback=callback):
-                recorded_chunks: List[np.ndarray] = []
-                silent_start_time: Optional[float] = None
-                recording_start_time: Optional[float] = None
-                is_recording_active = False
-                logged_recording_start = False
+                                blocksize=self.chunk_size,
+                                callback=_stream_callback):
+                while not self.stream_stop_event.is_set():
+                    time.sleep(0.1)
+        except Exception as e:
+            print(f"Error in audio input stream: {e}", file=sys.stderr)
+        finally:
+            print("Audio stream thread finished.")
 
-                if self.app:
-                    self.app.after(0, lambda: self.app.set_status("Please speak...", "blue"))
+    def start_vad_loop(self):
+        """Starts the real-time transcription and VAD loop."""
+        if not self.vad_thread.is_alive():
+            print("Starting VAD and transcription loop...")
+            self.vad_stop_event.clear()
+            self.vad_thread.start()
 
-                while not self.stop_event.is_set():
-                    try:
-                        audio_chunk = audio_q.get(timeout=0.1)
-                    except queue.Empty:
-                        if self.stop_event.is_set():
-                            break
-                        if is_recording_active and silent_start_time and recording_start_time:
-                            elapsed_silence = time.time() - silent_start_time
-                            total_record_time = time.time() - recording_start_time
-                            if elapsed_silence >= self.required_silent_seconds and total_record_time >= self.min_record_seconds:
-                                print("Silence detected. Stopping recording.")
-                                break
-                        continue
+    def stop_vad_loop(self):
+        """Stops the real-time transcription and VAD loop."""
+        if self.vad_thread.is_alive():
+            print("Stopping VAD and transcription loop...")
+            self.vad_stop_event.set()
+            self.vad_thread.join(timeout=2)
 
-                    rms = float(np.sqrt(np.mean(np.square(audio_chunk))))
-                    is_currently_silent = rms < self.silent_threshold
-                    current_time = time.time()
+    def _vad_loop(self):
+        """
+        The main loop for Voice Activity Detection.
+        Processes audio chunks to detect utterances and sends them for transcription.
+        """
+        print("VAD loop started.")
+        silent_since = None
+        
+        while not self.vad_stop_event.is_set():
+            try:
+                chunk = self.audio_q.get(timeout=0.1)
+                rms = float(np.sqrt(np.mean(np.square(chunk))))
+                is_loud = rms > self.silent_threshold
 
-                    if not is_recording_active:
-                        if not is_currently_silent:
-                            is_recording_active = True
-                            recording_start_time = current_time
-                            rec_start_dt = datetime.datetime.now()
+                if self.vad_state == "WAITING":
+                    if is_loud:
+                        print("Speech start detected.")
+                        self.vad_state = "RECORDING"
+                        self.current_utterance_chunks.append(chunk)
+                        silent_since = None
+                        if self.app:
+                            self.app.after(0, lambda: self.app.set_status("Listening...", "cyan"))
 
-                            if self.hr_monitor and getattr(self.hr_monitor, "is_connected", False):
-                                hr_at_start = self.hr_monitor.get_current_hr()
-                                self.log_heartrate_at_recording_start(hr_at_start)
-                                print(f"*** Recorded HR at recording start (Verity): {hr_at_start} BPM ***")
-                            else:
-                                print("Verity Sense not connected at recording start. No HR logged for rec start.")
-
-                            if not logged_recording_start:
-                                print("Recording started...")
-                                logged_recording_start = True
-                            if self.app:
-                                self.app.after(0, lambda: self.app.set_status("Recording...", "orange"))
-
-                    if is_recording_active:
-                        recorded_chunks.append(audio_chunk)
-                        elapsed_recording_time = current_time - (recording_start_time or current_time)
-                        if is_currently_silent:
-                            if silent_start_time is None:
-                                silent_start_time = current_time
-                        else:
-                            silent_start_time = None
-
-                        if elapsed_recording_time >= 30.0:
-                            print("Maximum recording time reached. Stopping recording.")
-                            break
-
-                if recorded_chunks:
-                    recorded_audio = np.concatenate(recorded_chunks, axis=0)
-                    duration = recorded_audio.shape[0] / self.sample_rate
-                    if duration >= self.min_audio_length:
-                        sf.write(filename, recorded_audio, self.sample_rate)
-                        recording_success = True
-                        rec_end_dt = datetime.datetime.now()
-                        print(f"Recording saved to {filename}, duration: {duration:.2f} seconds.")
+                elif self.vad_state == "RECORDING":
+                    self.current_utterance_chunks.append(chunk)
+                    if is_loud:
+                        silent_since = None
                     else:
-                        print(f"Recorded audio too short ({duration:.2f} seconds). Discarded.")
+                        if silent_since is None:
+                            silent_since = time.time()
+                        
+                        silence_duration = time.time() - silent_since
+                        total_duration = sum(len(c) for c in self.current_utterance_chunks) / self.sample_rate
+                        
+                        if silence_duration >= self.required_silent_seconds and total_duration >= self.min_record_seconds:
+                            print("Utterance end detected.")
+                            
+                            # Dispatch transcription in a new thread to not block the VAD loop
+                            threading.Thread(target=self._process_utterance, args=(list(self.current_utterance_chunks),)).start()
+                            
+                            self.current_utterance_chunks = []
+                            self.vad_state = "WAITING"
+                            silent_since = None
+                            if self.app:
+                                self.app.after(0, lambda: self.app.set_status("Processing...", "orange"))
+
+            except queue.Empty:
+                # If the queue is empty, check if we were in the middle of an utterance
+                if self.vad_state == "RECORDING" and silent_since:
+                    silence_duration = time.time() - silent_since
+                    total_duration = sum(len(c) for c in self.current_utterance_chunks) / self.sample_rate
+                    if silence_duration >= self.required_silent_seconds and total_duration >= self.min_record_seconds:
+                        print("Utterance end detected (timeout).")
+                        threading.Thread(target=self._process_utterance, args=(list(self.current_utterance_chunks),)).start()
+                        self.current_utterance_chunks = []
+                        self.vad_state = "WAITING"
+                        if self.app:
+                            self.app.after(0, lambda: self.app.set_status("Processing...", "orange"))
+                continue
+            except Exception as e:
+                print(f"Error in VAD loop: {e}", file=sys.stderr)
+
+        print("VAD loop finished.")
+
+    def _process_utterance(self, audio_chunks: List[np.ndarray]):
+        """Transcribes a completed utterance and puts the final text in a queue."""
+        if not audio_chunks:
+            return
+
+        audio_data = np.concatenate(audio_chunks)
+        duration = len(audio_data) / self.sample_rate
+        print(f"Processing utterance of {duration:.2f} seconds.")
+
+        try:
+            segments, info = self.whisper_model.transcribe(
+                audio_data,
+                beam_size=config.WHISPER_TRANSCRIBE_BEAM_SIZE
+            )
+            final_text = "".join(segment.text for segment in segments).strip()
+
+            if final_text:
+                print(f"Final text: '{final_text}'")
+                self.final_text_queue.put(final_text)
+                # Also update the interim queue for immediate GUI feedback
+                self.interim_transcription_queue.put(f"User: {final_text}")
+            else:
+                print("Transcription resulted in empty text.")
+                # Clear interim text
+                self.interim_transcription_queue.put("")
 
         except Exception as e:
-            print(f"Recording failed: {e}")
+            print(f"Error during utterance transcription: {e}", file=sys.stderr)
         finally:
             if self.app:
-                status_text = "Recording complete." if recording_success else "Recording failed or canceled."
-                status_color = "green" if recording_success else "red"
-                self.app.after(0, lambda: self.app.set_status(status_text, status_color))
+                self.app.after(0, lambda: self.app.set_status("Ready", "green"))
+    
+    def record_audio(self, filename: str = "input.wav") -> Tuple[bool, Optional[datetime.datetime], Optional[datetime.datetime]]:
+        # This method is now deprecated and will be replaced by the VAD loop.
+        # Keeping it for now to avoid breaking other parts of the code.
+        print("WARNING: record_audio is deprecated.")
+        return False, None, None
 
-        return recording_success, rec_start_dt, rec_end_dt
 
     def text_to_speech(self, text: str, filename: str = "output.wav") -> Tuple[bool, Optional[datetime.datetime], Optional[datetime.datetime]]:
         """
@@ -616,7 +690,7 @@ class AudioProcessor:
         try:
             data, samplerate = sf.read(filename, dtype='float32')
             sd.play(data, samplerate)
-            sd.wait()
+            # sd.wait() # この行を削除して再生をノンブロッキングに
         except Exception as e:
             print(f"Error during audio playback: {e}")
             raise

@@ -20,8 +20,13 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- General Configuration ---
-WHISPER_MODEL_NAME = "small" # Options: "tiny", "base", "small", "medium", "large" (and their .en variants)
+WHISPER_MODEL_NAME = "base" # Options: "tiny", "base", "small", "medium", "large" (and their .en variants)
 WHISPER_TRANSCRIBE_BEAM_SIZE = 5       # For faster-whisper. Smaller values (e.g., 1 or 3) can be faster but less accurate.
+
+# --- Audio Processing Settings ---
+AUDIO_BUFFER_SECONDS = 30  # seconds
+TRANSCRIPTION_INTERVAL = 1.0 # seconds
+
 INPUT_WAV_FILE = "input.wav"           # Filename for recorded audio
 OUTPUT_WAV_FILE = "output.wav"         # Filename for synthesized audio
 CONFIG_FILE = resource_path("config_heartrate_prosody.json")
