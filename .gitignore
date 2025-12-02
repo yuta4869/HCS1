@@ -21,3 +21,6 @@ test_audio/
 
 # macOS specific
 .DS_Store
+
+# Application generated files
+Logs/
