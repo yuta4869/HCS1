@@ -436,7 +436,8 @@ class AudioProcessor:
 
             if final_text:
                 print(f"Final text: '{final_text}'")
-                self.final_text_queue.put(final_text)
+                # Pass both text and audio data to the conversation manager
+                self.final_text_queue.put((final_text, audio_data))
                 # Also update the interim queue for immediate GUI feedback
                 self.interim_transcription_queue.put(f"User: {final_text}")
             else:

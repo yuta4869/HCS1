@@ -21,16 +21,19 @@ def resource_path(relative_path):
 
 # --- General Configuration ---
 WHISPER_MODEL_NAME = "base" # Options: "tiny", "base", "small", "medium", "large" (and their .en variants)
+WHISPER_COMPUTE_TYPE = "int8_float16" # On CUDA: "float16", "int8_float16", "int8". On CPU: "int8", "float32"
 WHISPER_TRANSCRIBE_BEAM_SIZE = 5       # For faster-whisper. Smaller values (e.g., 1 or 3) can be faster but less accurate.
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
 # --- Audio Processing Settings ---
 AUDIO_BUFFER_SECONDS = 30  # seconds
 TRANSCRIPTION_INTERVAL = 1.0 # seconds
+SAVE_UTTERANCE_WAV = True  # For research, save each detected utterance to a WAV file
+UTTERANCE_WAV_DIR = os.path.join(LOG_DIR, "utterances") # Directory to save utterance WAVs
 
 INPUT_WAV_FILE = "input.wav"           # Filename for recorded audio
 OUTPUT_WAV_FILE = "output.wav"         # Filename for synthesized audio
 CONFIG_FILE = resource_path("config_heartrate_prosody.json")
-LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
 # --- Log File Templates ---
 CONVERSATION_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{timestamp}.txt")

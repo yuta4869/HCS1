@@ -77,19 +77,10 @@ def main():
             device = env_device_override.lower()
             print(f"  環境変数によりWhisperデバイスを '{device}' にオーバーライドしました。")
 
-        compute_type = "float32" # Default compute type
-        if device == "cuda":
-            if torch.cuda.is_available():
-                # Check CUDA capability for float16 (e.g., Turing architecture or newer)
-                cuda_capability = torch.cuda.get_device_capability(0)
-                if cuda_capability[0] >= 7: # Major capability 7+ generally supports float16 well
-                    compute_type = "float16"
-                    print(f"  CUDAデバイス {torch.cuda.get_device_name(0)} (Capability {cuda_capability[0]}.{cuda_capability[1]}) はfloat16をサポートしています。")
-                else:
-                    print(f"  CUDAデバイス {torch.cuda.get_device_name(0)} (Capability {cuda_capability[0]}.{cuda_capability[1]}) はfloat16を完全にはサポートしていない可能性があるため、float32を使用します。")
-            else: # Should not happen if device is "cuda" but good fallback
-                print("  警告: CUDAが利用可能と判断されましたが、torch.cuda.is_available()がFalseを返しました。CPUにフォールバックします。")
-                device = "cpu"
+        # Read compute_type from config. This gives user full control.
+        # For CPU, "int8" is often a good choice for performance.
+        # For CUDA, "int8_float16" or "float16" are good choices.
+        compute_type = config.WHISPER_COMPUTE_TYPE
         
         print(f"  モデル '{model_name}' をロード中 (デバイス: {device}, 計算タイプ: {compute_type})...")
         faster_whisper_model_instance = WhisperModel(model_name, device=device, compute_type=compute_type)

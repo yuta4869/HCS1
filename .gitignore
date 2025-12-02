@@ -9,8 +9,8 @@ build/
 dist/
 *.spec
 
-# Log files
-
+# Test data
+test_audio/
 
 # Archives and sound files
 *.zip
@@ -20,4 +20,4 @@ dist/
 .vscode/
 
 # macOS specific
-.DS_Store.venv/
+.DS_Store
