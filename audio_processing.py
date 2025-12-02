@@ -425,31 +425,42 @@ class AudioProcessor:
 
         audio_data = np.concatenate(audio_chunks)
         duration = len(audio_data) / self.sample_rate
-        print(f"Processing utterance of {duration:.2f} seconds.")
+        print(f"--- Processing utterance of {duration:.2f} seconds. ---")
+
+        temp_wav_path = os.path.join(config.UTTERANCE_WAV_DIR, "temp_utterance.wav")
 
         try:
+            print("[_process_utterance] Saving temporary WAV file...")
+            os.makedirs(os.path.dirname(temp_wav_path), exist_ok=True) # Ensure directory exists
+            sf.write(temp_wav_path, audio_data, self.sample_rate)
+            print(f"[_process_utterance] Saved to {temp_wav_path}")
+
+            print("[_process_utterance] Starting transcription...")
             segments, info = self.whisper_model.transcribe(
-                audio_data,
+                temp_wav_path,
                 beam_size=config.WHISPER_TRANSCRIBE_BEAM_SIZE
             )
+            print("[_process_utterance] Transcription finished.")
+            
             final_text = "".join(segment.text for segment in segments).strip()
+            print(f"[_process_utterance] Raw transcription result: '{final_text}'")
 
             if final_text:
                 print(f"Final text: '{final_text}'")
-                # Pass both text and audio data to the conversation manager
                 self.final_text_queue.put((final_text, audio_data))
-                # Also update the interim queue for immediate GUI feedback
                 self.interim_transcription_queue.put(f"User: {final_text}")
             else:
                 print("Transcription resulted in empty text.")
-                # Clear interim text
                 self.interim_transcription_queue.put("")
 
         except Exception as e:
             print(f"Error during utterance transcription: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
         finally:
             if self.app:
                 self.app.after(0, lambda: self.app.set_status("Ready", "green"))
+            print("--- Utterance processing finished. ---")
     
     def record_audio(self, filename: str = "input.wav") -> Tuple[bool, Optional[datetime.datetime], Optional[datetime.datetime]]:
         # This method is now deprecated and will be replaced by the VAD loop.
