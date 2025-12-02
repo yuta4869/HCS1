@@ -1,4 +1,4 @@
-# HCS_ver4.0: Human Computer System for Heart Rate and Prosody Analysis
+# HCS_ver4.0: Human Combersation System for Heart Rate and Prosody Analysis
 
 ## Project Overview
 
