@@ -164,10 +164,10 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         self.setup_ui()
         self.load_config()
 
-        # Start VAD and audio streaming
-        self.audio.start_streaming_input()
-        self.audio.start_vad_loop()
-        self.after(100, self._check_interim_transcription_queue)
+        # ver3.10方式: VADストリーミングは使用せず、会話ループ内で録音→認識を行う
+        # self.audio.start_streaming_input()
+        # self.audio.start_vad_loop()
+        # self.after(100, self._check_interim_transcription_queue)
 
         self.update_ui_periodic()
 
@@ -1284,25 +1284,31 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
             while self.is_conversing and not self.audio.stop_event.is_set():
                 self.set_status("話してください...", "blue")
-                
-                try:
-                    user_text, audio_data = self.audio.final_text_queue.get(timeout=1.0)
-                except queue.Empty:
-                    continue
+
+                # 録音（ver3.10方式: 一旦ファイルに保存）
+                recorded_successfully, user_rec_start, user_rec_end = self.audio.record_audio("input.wav")
 
                 if self.audio.stop_event.is_set() or not self.is_conversing: break
-                
-                self._log_to_console("ユーザー音声認識完了。")
-                self.after(0, lambda: self._set_status_display_prompt("AI 処理中..."))
-                self.set_status("AI応答を生成中...", "orange")
-
-                if not user_text:
-                    self.set_status("音声認識に失敗しました。もう一度どうぞ。", "orange")
-                    self.after(0, lambda: self._set_status_display_prompt("話してください") ) 
+                if not recorded_successfully:
+                    self.after(0, lambda: self._set_status_display_prompt("話してください"))
                     time.sleep(0.5)
                     continue
-                
-                self.conversation_manager.add_message("user", user_text)
+
+                self._log_to_console("ユーザー音声録音完了。")
+                self.after(0, lambda: self._set_status_display_prompt("AI 処理中..."))
+                self.set_status("音声をテキストに変換中...", "orange")
+
+                # 音声認識（ver3.10方式: ファイルから直接）
+                user_text = self.audio.speech_to_text("input.wav")
+
+                if self.audio.stop_event.is_set() or not self.is_conversing: break
+                if not user_text:
+                    self.set_status("音声認識に失敗しました。もう一度どうぞ。", "orange")
+                    self.after(0, lambda: self._set_status_display_prompt("話してください"))
+                    time.sleep(0.5)
+                    continue
+
+                self.conversation_manager.add_message("user", user_text, start_time=user_rec_start, end_time=user_rec_end)
                 
                 print(f"User: {user_text}")
                 self._log_to_console(f"ユーザー発話処理完了: {user_text[:70]}{'...' if len(user_text)>70 else ''}")
