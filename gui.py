@@ -21,6 +21,7 @@ from polar_monitor import HeartRateMonitor, H10Monitor
 from conversation_manager import ConversationManager
 from audio_processing import ProsodySettings, SpeakerSettings, AudioProcessor, VoicevoxManager
 from video_recorder import VideoRecorder
+from audio_device_utils import get_conversation_mic_device, get_secondary_mic_device
 
 import openai
 
@@ -142,8 +143,18 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         self.reference_hr_var = tk.StringVar(value=str(self.hr_monitor.get_reference_hr()))
 
         # ビデオ録画機能の初期化
-        # record_audio=False: 映像のみ録画（音声は会話システムで別途録音）
-        self.video_recorder = VideoRecorder(record_audio=False)
+        # 会話システム優先: 2つ目のマイクがある場合のみ映像に音声を付ける
+        secondary_mic = get_secondary_mic_device(self.audio.input_device_index)
+        if secondary_mic is not None:
+            self.video_recorder = VideoRecorder(
+                record_audio=True,
+                audio_device_index=secondary_mic,
+                auto_detect_audio_device=False  # 明示的に指定するので自動検出は無効
+            )
+            print(f"[VideoRecorder] 映像に音声を付けます（2つ目のマイクを使用）")
+        else:
+            self.video_recorder = VideoRecorder(record_audio=False)
+            print(f"[VideoRecorder] 映像のみ録画（2つ目のマイクがないため音声なし）")
         self.video_recording_enabled = tk.BooleanVar(value=True)  # デフォルトで録画有効
 
         self.status_display_window = StatusDisplayWindow(self)

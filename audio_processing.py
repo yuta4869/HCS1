@@ -306,6 +306,7 @@ class AudioProcessor:
 
         self.stop_event = threading.Event()
         self.tts_lock = threading.Lock()
+        self.transcription_lock = threading.Lock()  # Whisperの同時実行を防ぐ
 
         self.sample_rate: int = 16000
         self.channels: int = 1
@@ -471,6 +472,11 @@ class AudioProcessor:
         duration = len(audio_data) / self.sample_rate
         print(f"--- Processing utterance of {duration:.2f} seconds. ---")
 
+        # ロックを取得して、同時にWhisperが実行されないようにする
+        if not self.transcription_lock.acquire(blocking=False):
+            print("[_process_utterance] 別のトランスクリプションが実行中のためスキップ")
+            return
+
         try:
             print("[_process_utterance] Starting transcription...")
             segments, info = self.whisper_model.transcribe(
@@ -478,7 +484,7 @@ class AudioProcessor:
                 beam_size=config.WHISPER_TRANSCRIBE_BEAM_SIZE
             )
             print("[_process_utterance] Transcription finished.")
-            
+
             final_text = "".join(segment.text for segment in segments).strip()
             print(f"[_process_utterance] Raw transcription result: '{final_text}'")
 
@@ -497,6 +503,7 @@ class AudioProcessor:
             import traceback
             traceback.print_exc()
         finally:
+            self.transcription_lock.release()  # ロックを解放
             if self.app:
                 self.app.after(0, lambda: self.app.set_status("Ready", "green"))
             print("--- Utterance processing finished. ---")
