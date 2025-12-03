@@ -42,7 +42,9 @@ class ConversationManager:
 
     def set_system_prompt(self, prompt: str) -> None:
         """system役の最初の文を履歴の先頭に入れる（既存のsystemは消す）。"""
+        # 既存の system を取り除く
         self.conversation_history = [m for m in self.conversation_history if m.get("role") != "system"]
+        # 先頭に追加
         self.conversation_history.insert(0, {"role": "system", "content": prompt})
 
     def update_system_prompt(self, new_prompt: str):
@@ -91,10 +93,64 @@ class ConversationManager:
 
         self._log_message(role, content, start_time, end_time, wav_filename)
 
-    def get_history_for_llm(self) -> List[Dict[str, str]]:
+    def get_messages(self) -> List[Dict[str, str]]:
         """大規模言語モデルに渡す形（role/contentだけ）で履歴を返す。"""
+        # Ensure a system prompt exists before returning messages for LLM
+        if not any(m["role"] == "system" for m in self.conversation_history):
+            print("Warning: No system prompt in conversation history. Adding a default one.")
+            self.set_system_prompt("You are a helpful assistant.") # Add a default if missing
         return [{"role": m["role"], "content": m["content"]} for m in self.conversation_history]
+    
+    def clear_history(self) -> None:
+        """Clears user/assistant messages, retaining system prompts."""
+        system_messages = [m for m in self.conversation_history if m["role"] == "system"]
+        self.conversation_history = system_messages # Retain only system messages
+        self.turn_counter = 0 # Reset turn counter
+        # When history is cleared, logs specific to the session should also be reset
+        self.initialize_conversation_log() # Reinitialize text log
+        self.close_conversation_csv_log() # Close current CSV log
 
+    def initialize_conversation_log(self) -> None:
+        """Initializes the text-based conversation log file."""
+        # Use existing _ensure_text_log_open for consistency
+        self._ensure_text_log_open()
+
+    def initialize_conversation_csv_log(self, session_timestamp: str) -> None:
+        """Initializes the CSV conversation log for the current session via the log_queue."""
+        if not self.log_queue:
+            print("Warning: Log queue not provided to ConversationManager. CSV logging disabled.")
+            return
+
+        # Create utterance directory if it doesn't exist
+        if config.SAVE_UTTERANCE_WAV:
+            os.makedirs(config.UTTERANCE_WAV_DIR, exist_ok=True)
+            
+        self.current_session_timestamp_for_csv = session_timestamp
+        csv_path = get_timestamped_log_path(
+            config.CONVERSATION_CSV_LOG_FILE_TEMPLATE,
+            session_timestamp=self.current_session_timestamp_for_csv
+        )
+        self.csv_log_filepath = csv_path
+
+        header = ["timestamp", "role", "content", "start_time", "end_time", "wav_filename"]
+        try:
+            # Ensure directory exists before telling logger thread to add handler
+            os.makedirs(os.path.dirname(self.csv_log_filepath), exist_ok=True)
+            self.log_queue.put(("add_handler", config.LOGGER_CONVERSATION_CSV, self.csv_log_filepath, header))
+            print(f"Conversation CSV log ready: {self.csv_log_filepath}")
+        except Exception as e:
+            print(f"Failed to initialize conversation CSV log: {e}")
+            self.csv_log_filepath = None
+            self.current_session_timestamp_for_csv = None
+
+    def close_conversation_csv_log(self) -> None:
+        """Closes the current CSV conversation log via the log_queue."""
+        if self.csv_log_filepath and self.log_queue:
+            print(f"Requesting close of conversation CSV log: {self.csv_log_filepath}")
+            self.log_queue.put(("remove_handler", config.LOGGER_CONVERSATION_CSV))
+            self.csv_log_filepath = None
+            self.current_session_timestamp_for_csv = None
+            
     def _ensure_text_log_open(self) -> None:
         """本文ログ用の文章ファイルを開く。"""
         if self.log_filepath:
@@ -110,29 +166,6 @@ class ConversationManager:
         except Exception as e:
             print(f"Failed to open conversation text log: {e}")
             self.log_filepath = None
-
-    def _ensure_csv_log_open(self) -> None:
-        """表形式ログ用のCSVをロギングすれっどに依頼して用意する。"""
-        if self.csv_log_filepath or not self.log_queue:
-            return
-
-        # Create utterance directory if it doesn't exist
-        if config.SAVE_UTTERANCE_WAV:
-            os.makedirs(config.UTTERANCE_WAV_DIR, exist_ok=True)
-
-        self.current_session_timestamp_for_csv = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        template = config.CONVERSATION_CSV_LOG_FILE_TEMPLATE
-        csv_path = get_timestamped_log_path(template, session_timestamp=self.current_session_timestamp_for_csv)
-        self.csv_log_filepath = csv_path
-
-        header = ["timestamp", "role", "content", "start_time", "end_time", "wav_filename"]
-        try:
-            self.log_queue.put(("add_handler", config.LOGGER_CONVERSATION_CSV, csv_path, header))
-            print(f"Conversation CSV log: {csv_path}")
-        except Exception as e:
-            print(f"Failed to request CSV handler for conversation: {e}")
-            self.csv_log_filepath = None
-            self.current_session_timestamp_for_csv = None
 
     def _log_message(
         self,
@@ -157,7 +190,7 @@ class ConversationManager:
                 print(f"Failed to write to conversation text log: {e}")
 
         if self.log_queue:
-            self._ensure_csv_log_open()
+            # self._ensure_csv_log_open() # Call this in initialize_conversation_csv_log
             if self.csv_log_filepath:
                 payload = [
                     timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
@@ -175,10 +208,7 @@ class ConversationManager:
 
     def close(self) -> None:
         """会話ログ用のCSVハンドラを閉じるようロギングすれっどに依頼する。"""
-        if self.log_queue and self.csv_log_filepath:
-            self.log_queue.put(("remove_handler", config.LOGGER_CONVERSATION_CSV))
-            self.csv_log_filepath = None
-            self.current_session_timestamp_for_csv = None
+        self.close_conversation_csv_log() # Use the new method
 
     def generate_reply(self, user_text: str, system_prompt: str, wav_filename: Optional[str] = None) -> str:
         """
