@@ -125,8 +125,13 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         # Initialize OpenAI client before it's used
         self.openai_client = openai.OpenAI() 
         
-        # Use the simple v3.10 constructor
-        self.conversation_manager = ConversationManager(log_queue_ref=self.log_queue)
+        self.conversation_manager = ConversationManager(
+            audio_processor=self.audio,
+            hr_monitor=self.hr_monitor,
+            h10_monitor=self.h10_monitor,
+            app_ref=self,
+            log_queue_ref=self.log_queue
+        )
         
         self._closing: bool = False
         self.conversation_start_time: Optional[datetime.datetime] = None
