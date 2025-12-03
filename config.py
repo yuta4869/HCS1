@@ -20,7 +20,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- General Configuration ---
-WHISPER_MODEL_NAME = "base" # Options: "tiny", "base", "small", "medium", "large" (and their .en variants)
+WHISPER_MODEL_NAME = "small" # Options: "tiny", "base", "small", "medium", "large" (and their .en variants)
 WHISPER_COMPUTE_TYPE = "int8_float16" # On CUDA: "float16", "int8_float16", "int8". On CPU: "int8", "float32"
 WHISPER_TRANSCRIBE_BEAM_SIZE = 5       # For faster-whisper. Smaller values (e.g., 1 or 3) can be faster but less accurate.
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
