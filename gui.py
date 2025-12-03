@@ -621,6 +621,8 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
                     hr_h10 = self.h10_monitor.current_h10_hr
                     h10_hr_text = f"{hr_h10} BPM" if hr_h10 > 0 else "-- BPM"
                     h10_status_text, h10_status_color = "H10: 接続中", "green"
+                # デバッグ: H10の状態を確認（一時的）
+                # print(f"[DEBUG] H10: connected={self.h10_monitor.is_connected}, hr={self.h10_monitor.current_h10_hr}")
 
                 if hasattr(self, 'hr_label') and self.hr_label.winfo_exists():
                     self.hr_label.config(text=f"Verity Sense: {verity_hr_text} | H10: {h10_hr_text}")
