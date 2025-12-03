@@ -1408,6 +1408,7 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         print("シャットダウンプロセス開始...")
         self._closing = True
         self.set_status("アプリケーションを終了しています...", "orange")
+
         if self.is_conversing:
             print("  実行中の会話を停止中...")
             self.stop_conversation(called_from_close_signal=True)
@@ -1415,30 +1416,46 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
             print("  実行中の基準心拍数計測を停止中...")
             self.is_measuring_baseline = False
             self.hr_monitor.stop_baseline_measurement()
+
+        # オーディオストリームを停止
         if 'sd' in sys.modules:
             print("  オーディオストリームを停止試行中 (sounddevice)...")
-            try: 
+            try:
                 import sounddevice as sd
                 sd.stop(ignore_errors=True)
-            except Exception as sd_err_close: print(f"  sounddevice停止エラー (無視): {sd_err_close}")
-        
-        print("  非同期タスクとデバイス接続の停止を要求中...")
-        # Gracefully shutdown asyncio loop
-        if self.async_loop.is_running():
-            all_tasks = asyncio.all_tasks(self.async_loop)
-            # Create a task to disconnect devices
-            disconnect_task = self.async_loop.create_task(self._disconnect_devices_async())
-            
-            # Wait for all tasks including the disconnect task to complete
-            all_tasks.add(disconnect_task)
-            
-            for task in all_tasks:
-                task.cancel()
-            
-            # This part is tricky, as we are in the main thread.
-            # We run the loop until all tasks are cancelled and finished.
-            self.async_loop.run_until_complete(asyncio.gather(*all_tasks, return_exceptions=True))
-            self.async_loop.close()
+            except Exception as sd_err_close:
+                print(f"  sounddevice停止エラー (無視): {sd_err_close}")
+
+        # BLEデバイスを切断（asyncioを使用）
+        print("  BLEデバイスを切断中...")
+        try:
+            if self.async_loop and not self.async_loop.is_closed():
+                # 切断タスクを実行
+                future = asyncio.run_coroutine_threadsafe(
+                    self._safe_disconnect_devices(),
+                    self.async_loop
+                )
+                try:
+                    future.result(timeout=5.0)  # 最大5秒待機
+                except Exception as e:
+                    print(f"  BLE切断タイムアウトまたはエラー: {e}")
+
+                # asyncioループ内の保留中のタスクをキャンセル
+                pending = asyncio.all_tasks(self.async_loop)
+                for task in pending:
+                    task.cancel()
+
+                # 少し待機してからループを停止（Core Bluetoothのクリーンアップ時間）
+                import time
+                time.sleep(0.5)
+
+                # asyncioループを停止
+                self.async_loop.call_soon_threadsafe(self.async_loop.stop)
+                # ループスレッドの終了を待機
+                if hasattr(self, '_async_thread') and self._async_thread.is_alive():
+                    self._async_thread.join(timeout=2.0)
+        except Exception as e:
+            print(f"  asyncioシャットダウンエラー: {e}")
 
         print("  ロギングスレッドの停止を要求中...")
         if hasattr(self, 'logging_thread') and self.logging_thread.is_alive():
@@ -1447,15 +1464,55 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         print("  最終設定を保存中...")
         self.save_config()
+
         if self.status_display_window and self.status_display_window.winfo_exists():
             print("  AI発話表示ウィンドウを破棄中...")
-            try: self.status_display_window.destroy()
-            except tk.TclError: print("  AI発話表示ウィンドウの破棄エラー (無視)。")
+            try:
+                self.status_display_window.destroy()
+            except tk.TclError:
+                print("  AI発話表示ウィンドウの破棄エラー (無視)。")
 
         print("  メインUIを破棄中...")
-        try: self.destroy()
-        except tk.TclError: print("  メインUIの破棄エラー (無視)。")
-        
+        try:
+            self.destroy()
+        except tk.TclError:
+            print("  メインUIの破棄エラー (無視)。")
+
         # Finally, destroy the hidden root master window
-        self.master.destroy()
+        try:
+            self.master.destroy()
+        except Exception:
+            pass
         print("アプリケーション終了。")
+
+    async def _safe_disconnect_devices(self):
+        """BLEデバイスを安全に切断する"""
+        try:
+            if self.hr_monitor and self.hr_monitor.is_connected:
+                try:
+                    await asyncio.wait_for(
+                        self.hr_monitor.stop_monitoring_async(),
+                        timeout=3.0
+                    )
+                except asyncio.TimeoutError:
+                    print("  Verity Sense切断タイムアウト")
+        except Exception as e:
+            print(f"  Verity Sense切断エラー: {e}")
+
+        try:
+            if self.h10_monitor and self.h10_monitor.is_connected:
+                try:
+                    await asyncio.wait_for(
+                        self.h10_monitor.stop_monitoring_async(),
+                        timeout=3.0
+                    )
+                except asyncio.TimeoutError:
+                    print("  H10切断タイムアウト")
+        except Exception as e:
+            print(f"  H10切断エラー: {e}")
+
+        # クライアント参照をクリア（ガベージコレクション対策）
+        if self.hr_monitor:
+            self.hr_monitor.client = None
+        if self.h10_monitor:
+            self.h10_monitor.client = None

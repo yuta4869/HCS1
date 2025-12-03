@@ -218,21 +218,26 @@ class HeartRateMonitor:
         self.is_measuring_baseline = False # Stop baseline measurement on disconnect
 
         client = self.client # Local variable to avoid race condition if self.client is set to None elsewhere
-        if client and client.is_connected:
+        self.client = None  # 先にクリアしてGC問題を回避
+        self.is_connected = False
+
+        if client:
             try:
-                await client.stop_notify(config.HR_CHARACTERISTIC_UUID)
+                if client.is_connected:
+                    try:
+                        await client.stop_notify(config.HR_CHARACTERISTIC_UUID)
+                    except Exception as e:
+                        print(f"Error stopping HR notifications (Verity): {e}")
+                    try:
+                        await client.disconnect()
+                        print(f"Disconnected from {config.POLAR_VERITY_SENSE_NAME}")
+                    except Exception as e:
+                        print(f"Error disconnecting Verity Sense: {e}")
             except Exception as e:
-                print(f"Error stopping HR notifications (Verity): {e}")
-            try:
-                await client.disconnect()
-                print(f"Disconnected from {config.POLAR_VERITY_SENSE_NAME}")
-            except Exception as e:
-                print(f"Error disconnecting Verity Sense: {e}")
+                # is_connectedチェック自体でエラーが発生する可能性
+                print(f"Error checking Verity Sense connection state: {e}")
         else:
             print("Verity Sense is not connected.")
-
-        self.is_connected = False
-        self.client = None
         # Close general HR/Prosody log
         if self.hr_prosody_filepath:
              print(f"Requesting close of HR/Prosody log (Verity): {self.hr_prosody_filepath}")
@@ -497,26 +502,31 @@ class H10Monitor:
         print("Starting H10 disconnection...")
 
         client = self.client # Local variable
-        if client and client.is_connected:
+        self.client = None  # 先にクリアしてGC問題を回避
+        self.is_connected = False
+        self.current_h10_hr = 0
+
+        if client:
             try:
-                await client.stop_notify(config.PMD_DATA)
-                print("Stopped ECG data notifications (H10).")
+                if client.is_connected:
+                    try:
+                        await client.stop_notify(config.PMD_DATA)
+                        print("Stopped ECG data notifications (H10).")
+                    except Exception as e:
+                        print(f"Error stopping ECG data notifications (H10): {e}")
+                    try:
+                        await client.stop_notify(config.HR_CHARACTERISTIC_UUID)
+                        print("Stopped heart rate data notifications (H10).")
+                    except Exception as e:
+                        print(f"Error stopping heart rate data notifications (H10): {e}")
+                    try:
+                        await client.disconnect()
+                        print(f"Disconnected from {config.POLAR_H10_NAME}")
+                    except Exception as e:
+                        print(f"Error disconnecting H10 device: {e}")
             except Exception as e:
-                print(f"Error stopping ECG data notifications (H10): {e}")
-            try:
-                await client.stop_notify(config.HR_CHARACTERISTIC_UUID)
-                print("Stopped heart rate data notifications (H10).")
-            except Exception as e:
-                print(f"Error stopping heart rate data notifications (H10): {e}")
-            try:
-                await client.disconnect()
-                print(f"Disconnected from {config.POLAR_H10_NAME}")
-            except Exception as e:
-                print(f"Error disconnecting H10 device: {e}")
+                # is_connectedチェック自体でエラーが発生する可能性
+                print(f"Error checking H10 connection state: {e}")
         else:
             print("H10 is not connected.")
-
-        self.is_connected = False
-        self.client = None
-        self.current_h10_hr = 0
         print("H10 disconnection process complete.")
