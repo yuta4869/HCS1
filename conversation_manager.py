@@ -45,6 +45,21 @@ class ConversationManager:
         self.conversation_history = [m for m in self.conversation_history if m.get("role") != "system"]
         self.conversation_history.insert(0, {"role": "system", "content": prompt})
 
+    def update_system_prompt(self, new_prompt: str):
+        """システムプロンプトを更新する。"""
+        if not new_prompt:
+            print("Warning: Attempted to set an empty system prompt.")
+            return
+        self.set_system_prompt(new_prompt) # Use existing method
+        print(f"System prompt updated: {new_prompt[:100]}...")
+        if self.log_filepath:
+            try:
+                with open(self.log_filepath, 'a', encoding='utf-8') as f:
+                    timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')
+                    f.write(f"[{timestamp}] System Prompt Updated: {new_prompt}\n\n")
+            except Exception as e:
+                print(f"Failed to log system prompt update: {e}")
+
     def add_message(
         self,
         role: str,
