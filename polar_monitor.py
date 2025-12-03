@@ -14,58 +14,14 @@ import config
 from logger_utils import get_timestamped_log_path
 
 
-class MonitorBase:
-    """Base class for HeartRateMonitor and H10Monitor to manage an asyncio event loop in a separate thread."""
-    def __init__(self):
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._thread: Optional[threading.Thread] = None
-        self._thread_started = threading.Event()
-        self._stop_thread = threading.Event()
-
-    def _start_asyncio_thread(self):
-        if self._thread is None or not self._thread.is_alive():
-            self._stop_thread.clear()
-            self._thread_started.clear()
-            self._thread = threading.Thread(target=self._run_asyncio_loop, daemon=True)
-            self._thread.start()
-            self._thread_started.wait(timeout=5) # Wait for the loop to start
-            if not self._loop:
-                raise RuntimeError("Asyncio loop did not start in time.")
-
-    def _run_asyncio_loop(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        self._thread_started.set() # Signal that the loop has started
-        self._loop.run_forever()
-
-    def _stop_asyncio_thread(self):
-        if self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
-            self._thread.join(timeout=5)
-            self._loop.close()
-            self._loop = None
-            self._thread = None
-
-    def _run_coroutine_in_thread(self, coro):
-        if not self._loop or not self._loop.is_running():
-            raise RuntimeError("Asyncio loop is not running.")
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result() # Blocks until the coroutine is done
-
-    def __del__(self):
-        self._stop_asyncio_thread()
-
-
-class HeartRateMonitor(MonitorBase):
+class HeartRateMonitor:
     """Monitors heart rate from Verity Sense and manages data logging via queue."""
     def __init__(self, log_queue_ref: queue.Queue):
-        super().__init__()
         self.current_hr: int = 0
         self.reference_hr: int = 70 # Default, can be updated
         self.last_timestamp: Optional[datetime.datetime] = None
         self.is_connected: bool = False
         self.client: Optional[BleakClient] = None
-        self.stop_event = threading.Event()
         self.hr_lock = threading.Lock()
         self.device: Optional[Any] = None # Bleak device object
         self.current_prosody_level: float = 1.0
@@ -75,26 +31,24 @@ class HeartRateMonitor(MonitorBase):
         self.baseline_hr_samples: List[int] = []
         self.is_measuring_baseline: bool = False
 
-    def start_monitoring(self):
-        """Synchronous wrapper to start the asynchronous connection."""
-        self._start_asyncio_thread()
+    async def start_monitoring_async(self) -> bool:
+        """Asynchronous method to connect and start monitoring."""
         try:
-            self.is_connected = self._run_coroutine_in_thread(self.connect_to_device())
+            self.is_connected = await self.connect_to_device()
         except Exception as e:
             print(f"Error starting Verity Sense monitoring: {e}")
             self.is_connected = False
         return self.is_connected
 
-    def stop_monitoring(self):
-        """Synchronous wrapper to stop the asynchronous connection."""
+    async def stop_monitoring_async(self):
+        """Asynchronous method to disconnect and stop monitoring."""
         try:
-            if self.is_connected:
-                self._run_coroutine_in_thread(self.disconnect())
+            if self.is_connected and self.client:
+                await self.disconnect()
         except Exception as e:
             print(f"Error stopping Verity Sense monitoring: {e}")
         finally:
             self.is_connected = False
-            self._stop_asyncio_thread() # Stop the asyncio loop for this monitor
 
 
     def initialize_hr_prosody_csv(self) -> None:
@@ -186,7 +140,6 @@ class HeartRateMonitor(MonitorBase):
     def hr_notification_handler(self, sender: int, data: bytearray):
         """Callback for receiving heart rate data from Verity Sense."""
         try:
-            if self.stop_event.is_set(): return
             if not data: return
 
             flags = data[0]
@@ -223,7 +176,6 @@ class HeartRateMonitor(MonitorBase):
     async def connect_to_device(self) -> bool:
         """Connects to the Verity Sense heart rate sensor."""
         try:
-            self.stop_event.clear()
             print("Searching for Polar Verity Sense...")
             devices = await BleakScanner.discover(timeout=15.0, return_adv=False)
             self.device = next((d for d in devices if d.name and config.POLAR_VERITY_SENSE_NAME.lower() in d.name.lower()), None)
@@ -263,7 +215,6 @@ class HeartRateMonitor(MonitorBase):
     async def disconnect(self):
         """Disconnects from the Verity Sense sensor."""
         print("Starting Verity Sense disconnection...")
-        self.stop_event.set()
         self.is_measuring_baseline = False # Stop baseline measurement on disconnect
 
         client = self.client # Local variable to avoid race condition if self.client is set to None elsewhere
@@ -287,8 +238,6 @@ class HeartRateMonitor(MonitorBase):
              print(f"Requesting close of HR/Prosody log (Verity): {self.hr_prosody_filepath}")
              self.log_queue.put(("remove_handler", config.LOGGER_HR_PROSODY))
              self.hr_prosody_filepath = ""
-        # Close session-specific Verity HR log (already handled by Application.stop_conversation usually)
-        # self.close_verity_hr_session_csv() # Consider if this is needed here or only at app level
         print("Verity Sense disconnection process complete.")
 
 
@@ -334,13 +283,11 @@ class HeartRateMonitor(MonitorBase):
             return None
 
 
-class H10Monitor(MonitorBase):
+class H10Monitor:
     """Monitors ECG and HR from Polar H10 and manages data logging via queue."""
     def __init__(self, log_queue_ref: queue.Queue):
-        super().__init__()
         self.is_connected: bool = False
         self.client: Optional[BleakClient] = None
-        self.stop_event = threading.Event()
         self.device: Optional[Any] = None # Bleak device object
         self.ecg_lock = threading.Lock() # For synchronizing access to ECG data if needed elsewhere
         self.hr_lock = threading.Lock()
@@ -349,26 +296,24 @@ class H10Monitor(MonitorBase):
         self.h10_ecg_session_filepath: str = ""
         self.h10_hr_session_filepath: str = ""
 
-    def start_monitoring(self):
-        """Synchronous wrapper to start the asynchronous connection."""
-        self._start_asyncio_thread()
+    async def start_monitoring_async(self):
+        """Asynchronous method to connect and start monitoring."""
         try:
-            self.is_connected = self._run_coroutine_in_thread(self.connect_to_device())
+            self.is_connected = await self.connect_to_device()
         except Exception as e:
             print(f"Error starting H10 monitoring: {e}")
             self.is_connected = False
         return self.is_connected
 
-    def stop_monitoring(self):
-        """Synchronous wrapper to stop the asynchronous connection."""
+    async def stop_monitoring_async(self):
+        """Asynchronous method to disconnect and stop monitoring."""
         try:
-            if self.is_connected:
-                self._run_coroutine_in_thread(self.disconnect())
+            if self.is_connected and self.client:
+                await self.disconnect()
         except Exception as e:
             print(f"Error stopping H10 monitoring: {e}")
         finally:
             self.is_connected = False
-            self._stop_asyncio_thread() # Stop the asyncio loop for this monitor
 
     def get_current_rr(self) -> int:
         """Gets the current RR interval (which is essentially HR for H10)."""
@@ -418,7 +363,6 @@ class H10Monitor(MonitorBase):
     def ecg_data_handler(self, sender: int, data: bytearray):
         """Callback for receiving ECG data from H10 PMD characteristic."""
         try:
-            if self.stop_event.is_set(): return
             if not data: return
             if not self.h10_ecg_session_filepath: return # Don't process if no log file is set
 
@@ -457,7 +401,6 @@ class H10Monitor(MonitorBase):
     def h10_hr_notification_handler(self, sender: int, data: bytearray):
         """Callback for receiving heart rate data from H10 HR characteristic."""
         try:
-            if self.stop_event.is_set(): return
             if not data: return
             if not self.h10_hr_session_filepath: return # Don't process if no log file is set
 
@@ -502,7 +445,6 @@ class H10Monitor(MonitorBase):
     async def connect_to_device(self) -> bool:
         """Connects to the Polar H10 sensor."""
         try:
-            self.stop_event.clear()
             print("Searching for Polar H10...")
             devices = await BleakScanner.discover(timeout=15.0, return_adv=False)
             self.device = next((d for d in devices if d.name and config.POLAR_H10_NAME.lower() in d.name.lower()), None)
@@ -552,7 +494,6 @@ class H10Monitor(MonitorBase):
     async def disconnect(self):
         """Disconnects from the H10 sensor."""
         print("Starting H10 disconnection...")
-        self.stop_event.set()
 
         client = self.client # Local variable
         if client and client.is_connected:
@@ -577,7 +518,4 @@ class H10Monitor(MonitorBase):
         self.is_connected = False
         self.client = None
         self.current_h10_hr = 0
-        # Session-specific logs are typically closed by the Application class
-        # self.close_h10_ecg_session_csv()
-        # self.close_h10_hr_session_csv()
         print("H10 disconnection process complete.")

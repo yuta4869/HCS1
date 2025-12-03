@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from typing import Dict, List, Optional, Any, Tuple
+import collections
 
 import numpy as np
 import requests
@@ -257,9 +258,6 @@ class SpeakerSettings:
         return [s['id'] for s in self.speakers]
 
 
-import collections
-
-
 class AudioProcessor:
     def __init__(self,
                  prosody_settings: ProsodySettings,
@@ -292,9 +290,6 @@ class AudioProcessor:
 
         # --- Real-time Transcription / VAD Attributes ---
         self.audio_q = queue.Queue() # Live audio chunks from stream callback
-        buffer_max_chunks = int(self.sample_rate * config.AUDIO_BUFFER_SECONDS / self.chunk_size)
-        self.audio_buffer = collections.deque(maxlen=buffer_max_chunks) # Not used in VAD loop yet, but kept for now
-
         self.stream_thread = threading.Thread(target=self._stream_input_loop, daemon=True)
         self.stream_stop_event = threading.Event()
         
@@ -425,14 +420,18 @@ class AudioProcessor:
 
         audio_data = np.concatenate(audio_chunks)
         duration = len(audio_data) / self.sample_rate
-        print(f"Processing utterance of {duration:.2f} seconds.")
+        print(f"--- Processing utterance of {duration:.2f} seconds. ---")
 
         try:
+            print("[_process_utterance] Starting transcription...")
             segments, info = self.whisper_model.transcribe(
-                audio_data,
+                audio_data,  # Pass numpy array directly
                 beam_size=config.WHISPER_TRANSCRIBE_BEAM_SIZE
             )
+            print("[_process_utterance] Transcription finished.")
+            
             final_text = "".join(segment.text for segment in segments).strip()
+            print(f"[_process_utterance] Raw transcription result: '{final_text}'")
 
             if final_text:
                 print(f"Final text: '{final_text}'")
@@ -442,14 +441,16 @@ class AudioProcessor:
                 self.interim_transcription_queue.put(f"User: {final_text}")
             else:
                 print("Transcription resulted in empty text.")
-                # Clear interim text
                 self.interim_transcription_queue.put("")
 
         except Exception as e:
             print(f"Error during utterance transcription: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc()
         finally:
             if self.app:
                 self.app.after(0, lambda: self.app.set_status("Ready", "green"))
+            print("--- Utterance processing finished. ---")
     
     def record_audio(self, filename: str = "input.wav") -> Tuple[bool, Optional[datetime.datetime], Optional[datetime.datetime]]:
         # This method is now deprecated and will be replaced by the VAD loop.
