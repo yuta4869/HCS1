@@ -182,6 +182,63 @@ def print_device_info():
     print("")
 
 
+def get_secondary_mic_device(primary_device_index: Optional[int] = None) -> Optional[int]:
+    """
+    会話システム用マイク以外の2つ目のマイクを取得する
+    映像録画用の音声に使用
+
+    Args:
+        primary_device_index: 会話システムが使用するマイクのインデックス
+
+    Returns:
+        2つ目のマイクのインデックス（存在しない場合はNone）
+    """
+    devices = sd.query_devices()
+    input_devices = [(i, d) for i, d in enumerate(devices) if d['max_input_channels'] > 0]
+
+    if len(input_devices) < 2:
+        print("[AudioDevice] 入力デバイスが1つしかないため、映像録音用の音声は無効")
+        return None
+
+    # プライマリデバイスが指定されていない場合は取得
+    if primary_device_index is None:
+        primary_device_index = get_conversation_mic_device()
+
+    # プライマリ以外のデバイスを探す
+    # まずVIDEO_MIC_KEYWORDSで検索
+    try:
+        import config
+        video_keywords = getattr(config, 'VIDEO_MIC_KEYWORDS', [])
+    except ImportError:
+        video_keywords = []
+
+    # キーワードに基づいて検索（プライマリ以外）
+    for keyword in video_keywords:
+        keyword_lower = keyword.lower()
+        for idx, dev in input_devices:
+            if idx != primary_device_index and keyword_lower in dev['name'].lower():
+                print(f"[AudioDevice] 映像録音用マイク: [{idx}] {dev['name']}")
+                return idx
+
+    # キーワードにマッチしない場合、プライマリ以外の最初のデバイスを使用
+    for idx, dev in input_devices:
+        if idx != primary_device_index:
+            print(f"[AudioDevice] 映像録音用マイク（2番目のデバイス）: [{idx}] {dev['name']}")
+            return idx
+
+    return None
+
+
 # モジュールテスト用
 if __name__ == "__main__":
     print_device_info()
+
+    print("\n" + "=" * 60)
+    print("セカンダリマイク検索テスト")
+    print("=" * 60)
+    primary = get_conversation_mic_device()
+    secondary = get_secondary_mic_device(primary)
+    if secondary is not None:
+        print(f"✓ 2つ目のマイクが利用可能 → 映像に音声を付けられます")
+    else:
+        print("✗ 2つ目のマイクなし → 映像は音声なしになります")
