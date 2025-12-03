@@ -83,9 +83,10 @@ def main():
             print(f"  環境変数によりWhisperデバイスを '{device}' にオーバーライドしました。")
 
         compute_type = config.WHISPER_COMPUTE_TYPE
-        if device == "cpu":
-            print(f"  警告: CPUデバイスを検出しました。計算タイプを 'float32' に設定します。")
-            compute_type = "float32"
+        # CPUでint8_float16は使えないのでint8に変更
+        if device == "cpu" and compute_type == "int8_float16":
+            print(f"  警告: CPUでは 'int8_float16' を使用できません。'int8' に変更します。")
+            compute_type = "int8"
         
         print(f"  モデル '{model_name}' をロード中 (デバイス: {device}, 計算タイプ: {compute_type})...")
         faster_whisper_model_instance = WhisperModel(model_name, device=device, compute_type=compute_type)
