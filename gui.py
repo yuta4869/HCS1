@@ -20,6 +20,7 @@ from logger_utils import LoggingThread, get_timestamped_log_path
 from polar_monitor import HeartRateMonitor, H10Monitor
 from conversation_manager import ConversationManager
 from audio_processing import ProsodySettings, SpeakerSettings, AudioProcessor, VoicevoxManager
+from video_recorder import VideoRecorder
 
 import openai
 
@@ -139,6 +140,10 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         self.baseline_duration_var = tk.IntVar(value=config.DEFAULT_BASELINE_MEASUREMENT_DURATION)
         self.reference_hr_var = tk.StringVar(value=str(self.hr_monitor.get_reference_hr()))
+
+        # ビデオ録画機能の初期化
+        self.video_recorder = VideoRecorder()
+        self.video_recording_enabled = tk.BooleanVar(value=True)  # デフォルトで録画有効
 
         self.status_display_window = StatusDisplayWindow(self)
         self.status_display_window.withdraw()
@@ -350,6 +355,15 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
             button.grid(row=0, column=i, padx=5, sticky='ew')
             setattr(self, btn_attr, button)
             control_button_frame.columnconfigure(i, weight=1)
+
+        # ビデオ録画チェックボックス
+        self.video_recording_checkbox = ttk.Checkbutton(
+            control_button_frame,
+            text="録画",
+            variable=self.video_recording_enabled,
+            style='TCheckbutton'
+        )
+        self.video_recording_checkbox.grid(row=0, column=len(buttons_config), padx=10, sticky='w')
         row_idx += 1
 
         # --- Status Bar ---
@@ -1158,6 +1172,13 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         self._initialize_session_logs()
 
+        # ビデオ録画を開始（有効な場合）
+        if self.video_recording_enabled.get():
+            if self.video_recorder.start_recording(self.current_session_timestamp):
+                self._log_to_console("ビデオ録画を開始しました")
+            else:
+                self._log_to_console("警告: ビデオ録画の開始に失敗しました（カメラが見つからない可能性）")
+
         self.is_conversing = True
         self.is_processing = True
         self.audio.stop_event.clear()
@@ -1201,13 +1222,19 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         
         self.processing_thread = None
 
+        # ビデオ録画を停止
+        if self.video_recorder.is_recording:
+            video_filepath = self.video_recorder.stop_recording()
+            if video_filepath:
+                self._log_to_console(f"ビデオ録画を停止しました: {video_filepath}")
+
         print("セッションログファイルのクローズを要求中...")
         if self.conversation_manager: self.conversation_manager.close_conversation_csv_log()
         if self.hr_monitor: self.hr_monitor.close_verity_hr_session_csv()
         if self.h10_monitor:
             self.h10_monitor.close_h10_ecg_session_csv()
             self.h10_monitor.close_h10_hr_session_csv()
-        
+
         if self.current_session_timestamp:
             self.log_queue.put(("remove_handler", config.LOGGER_HR_AFTER_TTS))
             self.log_queue.put(("remove_handler", config.LOGGER_HR_AT_RECORDING_START))
