@@ -20,8 +20,22 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 # --- General Configuration ---
-WHISPER_MODEL_NAME = "tiny" # Options: "tiny", "base", "small", "medium", "large" (and their .en variants)
-WHISPER_COMPUTE_TYPE = "int8" # On CUDA: "float16", "int8_float16", "int8". On CPU: "int8", "float32"
+# Whisper設定: CUDA/CPUに応じて自動選択
+def _detect_whisper_settings():
+    """CUDA利用可能かどうかで最適なWhisper設定を返す"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            # CUDA: より大きなモデルと高精度な計算
+            return "small", "float16"
+        else:
+            # CPU: 軽量モデルと量子化
+            return "base", "int8"
+    except ImportError:
+        # torchがない場合はCPU設定
+        return "base", "int8"
+
+WHISPER_MODEL_NAME, WHISPER_COMPUTE_TYPE = _detect_whisper_settings()
 WHISPER_TRANSCRIBE_BEAM_SIZE = 5       # For faster-whisper. Smaller values (e.g., 1 or 3) can be faster but less accurate.
 LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 
