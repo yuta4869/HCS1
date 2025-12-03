@@ -402,7 +402,6 @@ class H10Monitor:
         """Callback for receiving heart rate data from H10 HR characteristic."""
         try:
             if not data: return
-            if not self.h10_hr_session_filepath: return # Don't process if no log file is set
 
             flags = data[0]
             hr_format_bit = (flags >> 0) & 1 # 0 for UINT8, 1 for UINT16
@@ -424,13 +423,15 @@ class H10Monitor:
             with self.hr_lock:
                 self.current_h10_hr = hr_value
 
-            payload = [timestamp_str, hr_value]
-            record = logging.LogRecord(
-                name=config.LOGGER_H10_HR_SESSION, level=logging.INFO, pathname="", lineno=0,
-                msg="", args=(payload,), exc_info=None, func=""
-            )
-            record.payload = payload # type: ignore
-            self.log_queue.put(record)
+            # ログファイルが設定されている場合のみ記録
+            if self.h10_hr_session_filepath:
+                payload = [timestamp_str, hr_value]
+                record = logging.LogRecord(
+                    name=config.LOGGER_H10_HR_SESSION, level=logging.INFO, pathname="", lineno=0,
+                    msg="", args=(payload,), exc_info=None, func=""
+                )
+                record.payload = payload # type: ignore
+                self.log_queue.put(record)
 
         except RuntimeError as e:
             if "Event loop is closed" not in str(e):
