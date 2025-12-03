@@ -29,27 +29,44 @@ LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
 AUDIO_BUFFER_SECONDS = 30  # seconds
 TRANSCRIPTION_INTERVAL = 1.0 # seconds
 SAVE_UTTERANCE_WAV = True  # For research, save each detected utterance to a WAV file
-UTTERANCE_WAV_DIR = os.path.join(LOG_DIR, "utterances") # Directory to save utterance WAVs
+UTTERANCE_WAV_DIR = os.path.join(LOG_DIR, "utterances")
+
+# --- Audio Device Settings ---
+# マイクデバイスの設定（環境に応じて変更）
+# デバイス名の一部を指定すると自動的にマッチするデバイスを検索
+# 複数のキーワードをリストで指定可能（優先順位順）
+# 利用可能なデバイスは以下のコマンドで確認:
+#   python -c "import sounddevice as sd; print(sd.query_devices())"
+
+# 会話システム用マイク（音声認識に使用）
+# 例: ["インカム", "Headset", "USB Audio"] - インカムやヘッドセット優先
+CONVERSATION_MIC_KEYWORDS = ["インカム", "Headset", "USB Audio", "マイク"]
+
+# 映像録画用マイク（ビデオ録音に使用）
+# 例: ["Webcam", "USB Camera", "C920"] - USBカメラのマイク優先
+VIDEO_MIC_KEYWORDS = ["Webcam", "USB Camera", "C920", "C922", "Camera"]
+
+# フォールバック: キーワードにマッチしない場合はデフォルトデバイスを使用
+# True = デフォルトデバイスを使用, False = エラーとして扱う
+USE_DEFAULT_MIC_AS_FALLBACK = True
 
 INPUT_WAV_FILE = "input.wav"           # Filename for recorded audio
 OUTPUT_WAV_FILE = "output.wav"         # Filename for synthesized audio
 CONFIG_FILE = resource_path("config_heartrate_prosody.json")
 
 # --- Log File Templates ---
+# モード名: Sin (正弦波), HRF (心拍フィードバック), Fixed (抑揚固定)
 CONVERSATION_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{timestamp}.txt")
-CONVERSATION_CSV_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{session_timestamp}.csv")
+CONVERSATION_CSV_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{session_timestamp}_{mode}.csv")
 HR_PROSODY_CSV_TEMPLATE = os.path.join(LOG_DIR, "verity_hr_prosody_{timestamp}.csv")
 
-# HEARTRATE_AFTER_TTS_CSV = os.path.join(LOG_DIR, "heartrate_after_tts.csv") # 変更前
-HEARTRATE_AFTER_TTS_CSV_TEMPLATE = os.path.join(LOG_DIR, "heartrate_after_tts_{session_timestamp}.csv") # 変更後
+HEARTRATE_AFTER_TTS_CSV_TEMPLATE = os.path.join(LOG_DIR, "heartrate_after_tts_{session_timestamp}_{mode}.csv")
+HEARTRATE_AT_RECORDING_START_CSV_TEMPLATE = os.path.join(LOG_DIR, "heartrate_at_recording_start_{session_timestamp}_{mode}.csv")
 
-# HEARTRATE_AT_RECORDING_START_CSV = os.path.join(LOG_DIR, "heartrate_at_recording_start.csv") # 変更前
-HEARTRATE_AT_RECORDING_START_CSV_TEMPLATE = os.path.join(LOG_DIR, "heartrate_at_recording_start_{session_timestamp}.csv") # 変更後
-
-VERITY_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "verity_hr_session_{session_timestamp}.csv")
-H10_ECG_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_ecg_session_{session_timestamp}.csv")
-H10_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_hr_session_{session_timestamp}.csv")
-INTERACTION_EVENT_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "interaction_events_{session_timestamp}.csv")
+VERITY_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "verity_hr_session_{session_timestamp}_{mode}.csv")
+H10_ECG_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_ecg_session_{session_timestamp}_{mode}.csv")
+H10_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_hr_session_{session_timestamp}_{mode}.csv")
+INTERACTION_EVENT_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "interaction_events_{session_timestamp}_{mode}.csv")
 
 # --- API and Service URLs ---
 VOICEVOX_URL = "http://localhost:50021"
