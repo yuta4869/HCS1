@@ -195,6 +195,35 @@ class ProsodySettings:
     def get_hfb_target_param(self) -> str:
         return self.hfb_target_param
 
+    def get_current_mode(self) -> str:
+        """
+        現在のモードを文字列で返す。
+        Returns:
+            "Sin" - 正弦波モード
+            "HRF" - 心拍数フィードバックモード（直接調整）
+            "Fixed" - 抑揚固定モード（どちらも無効）
+        """
+        if self.sinusoidal_hfb_enabled:
+            return "Sin"
+        elif self.hfb_enabled:
+            return "HRF"
+        else:
+            return "Fixed"
+
+    def get_current_mode_display(self) -> str:
+        """
+        現在のモードを表示用の文字列で返す。
+        Returns:
+            "正弦波モード (Sin)" / "心拍フィードバック (HRF)" / "抑揚固定 (Fixed)"
+        """
+        mode = self.get_current_mode()
+        if mode == "Sin":
+            return "正弦波モード (Sin)"
+        elif mode == "HRF":
+            return "心拍フィードバック (HRF)"
+        else:
+            return "抑揚固定 (Fixed)"
+
 
 class VoicevoxManager:
     @staticmethod
@@ -265,7 +294,8 @@ class AudioProcessor:
                  hr_monitor: HeartRateMonitor,
                  h10_monitor: H10Monitor,
                  log_queue_ref: queue.Queue,
-                 faster_whisper_model_instance: WhisperModel):
+                 faster_whisper_model_instance: WhisperModel,
+                 input_device_index: Optional[int] = None):
         self.prosody = prosody_settings
         self.speaker = speaker_settings
         self.hr_monitor = hr_monitor
@@ -285,6 +315,10 @@ class AudioProcessor:
         self.required_silent_seconds: float = 1.3
         self.min_audio_length: float = 0.3
 
+        # 入力デバイス（マイク）の設定
+        # None = デフォルトデバイス、または明示的にインデックスを指定
+        self.input_device_index = input_device_index
+
         self.last_hr_after_tts: Optional[int] = None
         self.hr_used_for_last_adjustment: Optional[int] = None
 
@@ -292,7 +326,7 @@ class AudioProcessor:
         self.audio_q = queue.Queue() # Live audio chunks from stream callback
         self.stream_thread = threading.Thread(target=self._stream_input_loop, daemon=True)
         self.stream_stop_event = threading.Event()
-        
+
         self.interim_transcription_queue = queue.Queue() # For GUI
         self.final_text_queue = queue.Queue() # For ConversationManager
 
@@ -323,10 +357,25 @@ class AudioProcessor:
             self.audio_q.put(indata.copy())
 
         try:
-            print("Audio stream thread started.")
+            # デバイス情報をログに出力
+            device_info = ""
+            if self.input_device_index is not None:
+                try:
+                    dev = sd.query_devices(self.input_device_index)
+                    device_info = f" (デバイス: [{self.input_device_index}] {dev['name']})"
+                except Exception:
+                    device_info = f" (デバイスID: {self.input_device_index})"
+            else:
+                default_idx = sd.default.device[0]
+                if default_idx is not None:
+                    dev = sd.query_devices(default_idx)
+                    device_info = f" (デフォルト: [{default_idx}] {dev['name']})"
+
+            print(f"Audio stream thread started.{device_info}")
             with sd.InputStream(samplerate=self.sample_rate,
                                 channels=self.channels,
                                 blocksize=self.chunk_size,
+                                device=self.input_device_index,
                                 callback=_stream_callback):
                 while not self.stream_stop_event.is_set():
                     time.sleep(0.1)

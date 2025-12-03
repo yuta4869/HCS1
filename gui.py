@@ -142,7 +142,8 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         self.reference_hr_var = tk.StringVar(value=str(self.hr_monitor.get_reference_hr()))
 
         # ビデオ録画機能の初期化
-        self.video_recorder = VideoRecorder()
+        # record_audio=False: 映像のみ録画（音声は会話システムで別途録音）
+        self.video_recorder = VideoRecorder(record_audio=False)
         self.video_recording_enabled = tk.BooleanVar(value=True)  # デフォルトで録画有効
 
         self.status_display_window = StatusDisplayWindow(self)
@@ -217,7 +218,7 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         hr_frame.columnconfigure(1, weight=1) 
         hr_frame.columnconfigure(3, weight=1) 
 
-        ttk.Label(hr_frame, text="基準心拍数(HFB用):").grid(row=0, column=0, sticky=tk.W, pady=2, padx=5)
+        ttk.Label(hr_frame, text="基準心拍数(HRF用):").grid(row=0, column=0, sticky=tk.W, pady=2, padx=5)
         reference_hr_entry = ttk.Entry(hr_frame, textvariable=self.reference_hr_var, width=5)
         reference_hr_entry.grid(row=0, column=1, sticky=tk.W, pady=2, padx=5)
         reference_hr_entry.bind("<Return>", self.update_reference_hr)
@@ -269,28 +270,28 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         
         self.prosody.hfb_enabled_var = tk.BooleanVar(value=self.prosody.is_hfb_enabled())
         hfb_checkbox = ttk.Checkbutton(
-            hfb_frame, text="心拍数による抑揚自動調整 (HFB - Verity Sense HR基準)",
+            hfb_frame, text="心拍フィードバック (HRF - Verity Sense HR基準)",
             variable=self.prosody.hfb_enabled_var, command=self.toggle_hfb, style='TCheckbutton'
         )
         hfb_checkbox.pack(side=tk.LEFT, padx=5)
 
         self.prosody.sinusoidal_hfb_enabled_var = tk.BooleanVar(value=self.prosody.is_sinusoidal_hfb_enabled())
         sinusoidal_hfb_checkbox = ttk.Checkbutton(
-            hfb_frame, text="抑揚正弦波モード (録音開始時トリガ)",
+            hfb_frame, text="正弦波モード (Sin)",
             variable=self.prosody.sinusoidal_hfb_enabled_var,
             command=self.toggle_sinusoidal_hfb,
             style='TCheckbutton'
         )
         sinusoidal_hfb_checkbox.pack(side=tk.LEFT, padx=15)
-        
-        # HFBで自動調整する対象パラメータの選択
+
+        # HRFで自動調整する対象パラメータの選択
         try:
             current_target = self.prosody.get_hfb_target_param()
         except Exception:
             current_target = "intonation"
 
         self.prosody.hfb_target_param_var = tk.StringVar(value=current_target)
-        hfb_target_label = ttk.Label(hfb_frame, text="HFB対象パラメータ:")
+        hfb_target_label = ttk.Label(hfb_frame, text="HRF対象パラメータ:")
         hfb_target_label.pack(side=tk.LEFT, padx=(10, 3))
 
         self.hfb_target_param_combo = ttk.Combobox(
@@ -643,9 +644,13 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
             self._log_to_console("Error: Session timestamp not set for initializing session logs.")
             return
 
+        # 現在のモードを取得（Sin/HRF/Fixed）
+        self.current_session_mode = self.prosody.get_current_mode()
+        self._log_to_console(f"セッションモード: {self.prosody.get_current_mode_display()}")
+
         log_files_initialized_names: List[str] = []
         try:
-            self.conversation_manager.initialize_conversation_csv_log(self.current_session_timestamp)
+            self.conversation_manager.initialize_conversation_csv_log(self.current_session_timestamp, self.current_session_mode)
             if self.conversation_manager.csv_log_filepath:
                 log_files_initialized_names.append("会話CSV")
         except Exception as e_conv_csv_init:
@@ -653,31 +658,31 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         if self.hr_monitor.is_connected:
             try:
-                verity_hr_path = get_timestamped_log_path(config.VERITY_HR_SESSION_CSV_TEMPLATE, self.current_session_timestamp)
+                verity_hr_path = get_timestamped_log_path(config.VERITY_HR_SESSION_CSV_TEMPLATE, self.current_session_timestamp, self.current_session_mode)
                 self.hr_monitor.initialize_verity_hr_session_csv(verity_hr_path)
                 log_files_initialized_names.append("Verity HRセッション")
             except Exception as e_vhr_init: print(f"Verity HRセッションログ初期化エラー: {e_vhr_init}")
 
         if self.h10_monitor.is_connected:
             try:
-                h10_ecg_path = get_timestamped_log_path(config.H10_ECG_SESSION_CSV_TEMPLATE, self.current_session_timestamp)
+                h10_ecg_path = get_timestamped_log_path(config.H10_ECG_SESSION_CSV_TEMPLATE, self.current_session_timestamp, self.current_session_mode)
                 self.h10_monitor.initialize_h10_ecg_session_csv(h10_ecg_path)
                 log_files_initialized_names.append("H10 ECGセッション")
             except Exception as e_h10e_init: print(f"H10 ECGセッションログ初期化エラー: {e_h10e_init}")
             try:
-                h10_hr_path = get_timestamped_log_path(config.H10_HR_SESSION_CSV_TEMPLATE, self.current_session_timestamp)
+                h10_hr_path = get_timestamped_log_path(config.H10_HR_SESSION_CSV_TEMPLATE, self.current_session_timestamp, self.current_session_mode)
                 self.h10_monitor.initialize_h10_hr_session_csv(h10_hr_path)
                 log_files_initialized_names.append("H10 HRセッション")
             except Exception as e_h10h_init: print(f"H10 HRセッションログ初期化エラー: {e_h10h_init}")
-        
+
         try:
             hr_after_tts_filepath = get_timestamped_log_path(
-                config.HEARTRATE_AFTER_TTS_CSV_TEMPLATE, self.current_session_timestamp
+                config.HEARTRATE_AFTER_TTS_CSV_TEMPLATE, self.current_session_timestamp, self.current_session_mode
             )
             os.makedirs(os.path.dirname(hr_after_tts_filepath), exist_ok=True)
             header_hr_tts = [
                 "Timestamp", "HR After TTS (BPM)", "Reference HR",
-                "HFB Enabled During TTS", "HR Used for Adjustment (BPM)",
+                "Mode", "HR Used for Adjustment (BPM)",
                 "Applied Intonation Scale",
                 "Playback Start Time", "Playback End Time"
             ]
@@ -688,10 +693,10 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         try:
             hr_at_rec_start_filepath = get_timestamped_log_path(
-                config.HEARTRATE_AT_RECORDING_START_CSV_TEMPLATE, self.current_session_timestamp
+                config.HEARTRATE_AT_RECORDING_START_CSV_TEMPLATE, self.current_session_timestamp, self.current_session_mode
             )
             os.makedirs(os.path.dirname(hr_at_rec_start_filepath), exist_ok=True)
-            header_hr_rec_start = ["Timestamp", "HR at Recording Start (BPM)"]
+            header_hr_rec_start = ["Timestamp", "HR at Recording Start (BPM)", "Mode"]
             self.log_queue.put(("add_handler", config.LOGGER_HR_AT_RECORDING_START, hr_at_rec_start_filepath, header_hr_rec_start))
             log_files_initialized_names.append("HR at Recording Start")
         except Exception as e_init_log_hr_rec:
@@ -737,13 +742,13 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         if self.is_conversing or self.is_processing or self.is_measuring_baseline:
             self.set_status("処理中はセンサーの接続/切断はできません", "orange")
             return
-        
+
         is_any_connected = self.hr_monitor.is_connected or self.h10_monitor.is_connected
-        
+
         if is_any_connected:
-            asyncio.create_task(self._disconnect_devices_async())
+            self.async_loop.create_task(self._disconnect_devices_async())
         else:
-            asyncio.create_task(self._connect_devices_async())
+            self.async_loop.create_task(self._connect_devices_async())
 
     async def _connect_devices_async(self) -> None:
         self.connect_button.config(text="接続中...", state=tk.DISABLED)
@@ -1174,7 +1179,7 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         # ビデオ録画を開始（有効な場合）
         if self.video_recording_enabled.get():
-            if self.video_recorder.start_recording(self.current_session_timestamp):
+            if self.video_recorder.start_recording(self.current_session_timestamp, self.current_session_mode):
                 self._log_to_console("ビデオ録画を開始しました")
             else:
                 self._log_to_console("警告: ビデオ録画の開始に失敗しました（カメラが見つからない可能性）")

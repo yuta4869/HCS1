@@ -115,8 +115,14 @@ class ConversationManager:
         # Use existing _ensure_text_log_open for consistency
         self._ensure_text_log_open()
 
-    def initialize_conversation_csv_log(self, session_timestamp: str) -> None:
-        """Initializes the CSV conversation log for the current session via the log_queue."""
+    def initialize_conversation_csv_log(self, session_timestamp: str, mode: str = "Fixed") -> None:
+        """
+        Initializes the CSV conversation log for the current session via the log_queue.
+
+        Args:
+            session_timestamp: セッションタイムスタンプ
+            mode: モード名 (Sin/HRF/Fixed)
+        """
         if not self.log_queue:
             print("Warning: Log queue not provided to ConversationManager. CSV logging disabled.")
             return
@@ -124,15 +130,18 @@ class ConversationManager:
         # Create utterance directory if it doesn't exist
         if config.SAVE_UTTERANCE_WAV:
             os.makedirs(config.UTTERANCE_WAV_DIR, exist_ok=True)
-            
+
         self.current_session_timestamp_for_csv = session_timestamp
+        self.current_session_mode = mode  # モードを保存
         csv_path = get_timestamped_log_path(
             config.CONVERSATION_CSV_LOG_FILE_TEMPLATE,
-            session_timestamp=self.current_session_timestamp_for_csv
+            session_timestamp=self.current_session_timestamp_for_csv,
+            mode=mode
         )
         self.csv_log_filepath = csv_path
 
-        header = ["timestamp", "role", "content", "start_time", "end_time", "wav_filename"]
+        # ヘッダーにモード列を追加
+        header = ["timestamp", "role", "content", "start_time", "end_time", "wav_filename", "mode"]
         try:
             # Ensure directory exists before telling logger thread to add handler
             os.makedirs(os.path.dirname(self.csv_log_filepath), exist_ok=True)
@@ -192,6 +201,8 @@ class ConversationManager:
         if self.log_queue:
             # self._ensure_csv_log_open() # Call this in initialize_conversation_csv_log
             if self.csv_log_filepath:
+                # モードを取得（保存されていない場合はFixedをデフォルト）
+                mode = getattr(self, 'current_session_mode', 'Fixed')
                 payload = [
                     timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
                     role,
@@ -199,6 +210,7 @@ class ConversationManager:
                     start_time.strftime("%Y-%m-%d %H:%M:%S.%f") if start_time else "",
                     end_time.strftime("%Y-%m-%d %H:%M:%S.%f") if end_time else "",
                     wav_filename or "",
+                    mode,  # モード列を追加
                 ]
                 record = logging.LogRecord(
                     name=config.LOGGER_CONVERSATION_CSV, level=logging.INFO, pathname="",

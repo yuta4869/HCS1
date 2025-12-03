@@ -13,15 +13,23 @@ from typing import Optional, List, Any
 # 例: from . import config (同じディレクトリにある場合)
 # または、initialize_log_directory が LOG_DIR を引数で受け取るように変更も可能
 
-def get_timestamped_log_path(template: str, session_timestamp: Optional[str] = None) -> str:
-    """Generates a log file path with the current or session timestamp."""
+def get_timestamped_log_path(template: str, session_timestamp: Optional[str] = None, mode: str = "Fixed") -> str:
+    """
+    Generates a log file path with the current or session timestamp and mode.
+
+    Args:
+        template: ファイルパステンプレート（{timestamp}, {session_timestamp}, {mode}を含む）
+        session_timestamp: セッションタイムスタンプ（Noneの場合は現在時刻）
+        mode: モード名 (Sin/HRF/Fixed)
+
+    Returns:
+        フォーマット済みのファイルパス
+    """
     if session_timestamp is None:
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     else:
         timestamp = session_timestamp
-    # template.format は呼び出し元で行われるように、ここではパスの組み立てのみに集中するのも良い
-    # この関数がLOG_DIRを知っている必要はないため、template自体がフルパスに近い形であることが望ましい
-    return template.format(timestamp=timestamp, session_timestamp=timestamp)
+    return template.format(timestamp=timestamp, session_timestamp=timestamp, mode=mode)
 
 def initialize_log_directory(log_dir_path: str):
     """Creates the log directory if it doesn't exist."""

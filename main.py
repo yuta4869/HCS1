@@ -45,6 +45,7 @@ from logger_utils import initialize_log_directory # log_queue is created here
 from polar_monitor import HeartRateMonitor, H10Monitor
 from conversation_manager import ConversationManager
 from audio_processing import ProsodySettings, VoicevoxManager, SpeakerSettings, AudioProcessor
+from audio_device_utils import get_conversation_mic_device, print_device_info
 from gui import Application # The main Tkinter application class
 
 def main():
@@ -117,13 +118,18 @@ def main():
         hr_monitor = HeartRateMonitor(log_queue_ref=log_q)
         h10_monitor = H10Monitor(log_queue_ref=log_q)
 
+        # 会話システム用マイクの自動検出
+        print("\n--- オーディオデバイス設定 ---")
+        conversation_mic_device = get_conversation_mic_device()
+
         audio_processor = AudioProcessor(
             prosody_settings=prosody_settings,
             speaker_settings=speaker_settings,
             hr_monitor=hr_monitor,
             h10_monitor=h10_monitor,
             log_queue_ref=log_q,
-            faster_whisper_model_instance=faster_whisper_model_instance
+            faster_whisper_model_instance=faster_whisper_model_instance,
+            input_device_index=conversation_mic_device
         )
         print("コアコンポーネントの初期化成功。")
 

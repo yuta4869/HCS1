@@ -14,9 +14,10 @@ import sounddevice as sd
 import soundfile as sf
 import numpy as np
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 import config
+from audio_device_utils import get_video_mic_device
 
 
 class VideoRecorder:
@@ -31,9 +32,10 @@ class VideoRecorder:
     """
 
     # 録画ファイルの保存先テンプレート
-    VIDEO_FILE_TEMPLATE = os.path.join(config.LOG_DIR, "video_session_{session_timestamp}.mp4")
-    TEMP_VIDEO_TEMPLATE = os.path.join(config.LOG_DIR, "temp_video_{session_timestamp}.mp4")
-    TEMP_AUDIO_TEMPLATE = os.path.join(config.LOG_DIR, "temp_audio_{session_timestamp}.wav")
+    # モード名: Sin (正弦波), HRF (心拍フィードバック), Fixed (抑揚固定)
+    VIDEO_FILE_TEMPLATE = os.path.join(config.LOG_DIR, "video_session_{session_timestamp}_{mode}.mp4")
+    TEMP_VIDEO_TEMPLATE = os.path.join(config.LOG_DIR, "temp_video_{session_timestamp}_{mode}.mp4")
+    TEMP_AUDIO_TEMPLATE = os.path.join(config.LOG_DIR, "temp_audio_{session_timestamp}_{mode}.wav")
 
     def __init__(self,
                  camera_index: int = 0,
@@ -41,7 +43,10 @@ class VideoRecorder:
                  resolution: Optional[tuple] = None,
                  codec: str = "mp4v",
                  audio_sample_rate: int = 48000,
-                 audio_channels: int = 1):
+                 audio_channels: int = 1,
+                 record_audio: bool = True,
+                 audio_device_index: Optional[int] = None,
+                 auto_detect_audio_device: bool = True):
         """
         VideoRecorderを初期化する
 
@@ -52,6 +57,10 @@ class VideoRecorder:
             codec: 動画コーデック (デフォルト: mp4v)
             audio_sample_rate: 音声サンプリングレート (Hz、デフォルト: 48000)
             audio_channels: 音声チャンネル数 (1=モノラル、デフォルト: 1)
+            record_audio: 音声も録音するかどうか (デフォルト: True)
+            audio_device_index: 音声録音に使用するデバイスのインデックス
+                               (None=自動検出、または明示的に指定)
+            auto_detect_audio_device: True=config.pyのキーワードで自動検出、False=audio_device_indexを直接使用
         """
         self.camera_index = camera_index
         self.fps = fps
@@ -59,6 +68,14 @@ class VideoRecorder:
         self.codec = codec
         self.audio_sample_rate = audio_sample_rate
         self.audio_channels = audio_channels
+        self.record_audio = record_audio
+
+        # 音声デバイスの決定
+        if auto_detect_audio_device and audio_device_index is None:
+            # config.pyのキーワードに基づいて自動検出
+            self.audio_device_index = get_video_mic_device()
+        else:
+            self.audio_device_index = audio_device_index
 
         self._capture: Optional[cv2.VideoCapture] = None
         self._writer: Optional[cv2.VideoWriter] = None
@@ -114,17 +131,18 @@ class VideoRecorder:
 
         return -1
 
-    def _get_output_filepath(self, session_timestamp: str) -> str:
+    def _get_output_filepath(self, session_timestamp: str, mode: str) -> str:
         """
         録画ファイルの出力パスを生成する
 
         Args:
             session_timestamp: セッションタイムスタンプ
+            mode: モード名 (Sin/HRF/Fixed)
 
         Returns:
             出力ファイルパス
         """
-        return self.VIDEO_FILE_TEMPLATE.format(session_timestamp=session_timestamp)
+        return self.VIDEO_FILE_TEMPLATE.format(session_timestamp=session_timestamp, mode=mode)
 
     def _audio_callback(self, indata, frames, time_info, status):
         """音声録音コールバック"""
@@ -204,12 +222,13 @@ class VideoRecorder:
             print(f"[VideoRecorder] 結合中に例外発生: {e}")
             return False
 
-    def start_recording(self, session_timestamp: str) -> bool:
+    def start_recording(self, session_timestamp: str, mode: str = "Fixed") -> bool:
         """
         録画を開始する（映像＋音声）
 
         Args:
             session_timestamp: セッションタイムスタンプ (ファイル名に使用)
+            mode: モード名 (Sin/HRF/Fixed)
 
         Returns:
             True: 録画開始成功, False: 録画開始失敗
@@ -244,9 +263,9 @@ class VideoRecorder:
         print(f"[VideoRecorder] カメラ解像度: {actual_width}x{actual_height}")
 
         # 出力ファイルパスを設定
-        self._current_filepath = self._get_output_filepath(session_timestamp)
-        self._temp_video_path = self.TEMP_VIDEO_TEMPLATE.format(session_timestamp=session_timestamp)
-        self._temp_audio_path = self.TEMP_AUDIO_TEMPLATE.format(session_timestamp=session_timestamp)
+        self._current_filepath = self._get_output_filepath(session_timestamp, mode)
+        self._temp_video_path = self.TEMP_VIDEO_TEMPLATE.format(session_timestamp=session_timestamp, mode=mode)
+        self._temp_audio_path = self.TEMP_AUDIO_TEMPLATE.format(session_timestamp=session_timestamp, mode=mode)
 
         # VideoWriterを初期化（一時ファイルに保存）
         fourcc = cv2.VideoWriter_fourcc(*self.codec)
@@ -280,20 +299,34 @@ class VideoRecorder:
         )
         self._recording_thread.start()
 
-        # 音声録音開始（別スレッドで）
-        try:
-            self._audio_stream = sd.InputStream(
-                samplerate=self.audio_sample_rate,
-                channels=self.audio_channels,
-                callback=self._audio_callback
-            )
-            self._audio_stream.start()
-            print(f"[VideoRecorder] 音声録音開始 ({self.audio_sample_rate}Hz, {self.audio_channels}ch)")
-        except Exception as e:
-            print(f"[VideoRecorder] 警告: 音声録音の開始に失敗しました: {e}")
-            print(f"[VideoRecorder] 映像のみで録画を続行します")
+        # 音声録音開始（有効な場合のみ）
+        if self.record_audio:
+            try:
+                # デバイスインデックスが指定されている場合はそのデバイスを使用
+                device_info = ""
+                if self.audio_device_index is not None:
+                    try:
+                        dev = sd.query_devices(self.audio_device_index)
+                        device_info = f", デバイス: {dev['name']}"
+                    except Exception:
+                        device_info = f", デバイスID: {self.audio_device_index}"
 
-        print(f"[VideoRecorder] 録画開始 (映像+音声): {self._current_filepath}")
+                self._audio_stream = sd.InputStream(
+                    samplerate=self.audio_sample_rate,
+                    channels=self.audio_channels,
+                    device=self.audio_device_index,  # None=デフォルト、または指定デバイス
+                    callback=self._audio_callback
+                )
+                self._audio_stream.start()
+                print(f"[VideoRecorder] 音声録音開始 ({self.audio_sample_rate}Hz, {self.audio_channels}ch{device_info})")
+            except Exception as e:
+                print(f"[VideoRecorder] 警告: 音声録音の開始に失敗しました: {e}")
+                print(f"[VideoRecorder] 映像のみで録画を続行します")
+                self.record_audio = False  # 音声録音を無効化
+        else:
+            print(f"[VideoRecorder] 映像のみ録画モード")
+
+        print(f"[VideoRecorder] 録画開始: {self._current_filepath}")
         return True
 
     def stop_recording(self) -> Optional[str]:
