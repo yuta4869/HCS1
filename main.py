@@ -14,7 +14,8 @@ try:
     # The path of the python executable that is currently running this script
     current_python_path = sys.executable
 
-    # If the current python is not the one from our venv, and the venv exists
+    # If the current python is not the one from 
+    # our venv, and the venv exists
     if current_python_path != venv_python_path and os.path.exists(venv_python_path):
         print("---")
         print("WARNING: Incorrect Python interpreter detected.")
