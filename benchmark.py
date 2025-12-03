@@ -5,13 +5,15 @@ import time
 import os
 import glob
 import csv
+from datetime import datetime
 import soundfile as sf
 from faster_whisper import WhisperModel
 import config # To get model name and compute type
 
 def run_benchmark(test_audio_dir: str):
     """
-    Runs a benchmark on all WAV files in a directory and prints the results.
+    Runs a benchmark on all WAV files in a directory, prints the results,
+    and saves them to a CSV file.
     """
     model_name = config.WHISPER_MODEL_NAME
     compute_type = config.WHISPER_COMPUTE_TYPE
@@ -42,7 +44,6 @@ def run_benchmark(test_audio_dir: str):
             # Measure transcription time
             start_time = time.perf_counter()
             segments, _ = model.transcribe(audio_path, beam_size=config.WHISPER_TRANSCRIBE_BEAM_SIZE)
-            # We need to consume the generator
             transcribed_text = "".join(segment.text for segment in segments)
             end_time = time.perf_counter()
 
@@ -60,24 +61,38 @@ def run_benchmark(test_audio_dir: str):
         except Exception as e:
             print(f"Error processing {audio_path}: {e}")
 
+    if not results:
+        print("No results to save.")
+        return
+        
     # Print results in a nice table format
-    if results:
-        print("\n--- Benchmark Results ---")
-        header = results[0].keys()
-        # Find max column widths
-        widths = {k: max(len(str(r[k])) for r in results) for k in header}
-        widths = {k: max(widths[k], len(k)) for k in header} # include header length
+    print("\n--- Benchmark Results ---")
+    header = results[0].keys()
+    widths = {k: max(len(str(r[k])) for r in results) for k in header}
+    widths = {k: max(widths[k], len(k)) for k in header}
 
-        # Header
-        header_line = " | ".join(f"{k:<{widths[k]}}" for k in header)
-        print(header_line)
-        print("-" * len(header_line))
+    header_line = " | ".join(f"{k:<{widths[k]}}" for k in header)
+    print(header_line)
+    print("-" * len(header_line))
 
-        # Rows
-        for res in results:
-            row_line = " | ".join(f"{str(res[k]):<{widths[k]}}" for k in header)
-            print(row_line)
-        print("-" * len(header_line))
+    for res in results:
+        row_line = " | ".join(f"{str(res[k]):<{widths[k]}}" for k in header)
+        print(row_line)
+    print("-" * len(header_line))
+    
+    # Save results to CSV
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    csv_filename = f"benchmark_results_{timestamp}.csv"
+    print(f"\nSaving results to {csv_filename}...")
+    try:
+        with open(csv_filename, "w", newline="", encoding="utf-8") as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=header)
+            writer.writeheader()
+            writer.writerows(results)
+        print("Successfully saved benchmark results.")
+    except Exception as e:
+        print(f"Error saving results to CSV: {e}")
+
 
 if __name__ == "__main__":
     TEST_DIR = "test_audio"
