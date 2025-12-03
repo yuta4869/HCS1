@@ -6,7 +6,7 @@ This project, `HCS_ver4.0`, is a Human-Computer System focusing on the analysis 
 
 ## Version
 
-v0.2.0
+v2.0.5
 
 ## Features
 
