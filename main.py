@@ -66,8 +66,10 @@ def main():
 
     # 2. Check for OpenAI API Key
     if not os.getenv("OPENAI_API_KEY"):
-        messagebox.showerror("APIキーエラー", "環境変数 'OPENAI_API_KEY' が設定されていません。\nアプリケーションを終了します。", parent=root)
-        sys.exit(1)
+        warning_msg = ("環境変数 'OPENAI_API_KEY' が設定されていません。\n"
+                       "AI応答生成機能は利用できません。")
+        print(f"WARNING: {warning_msg.replace(chr(10), ' ')}")
+        messagebox.showwarning("OpenAI APIキー警告", warning_msg, parent=root)
 
     # 3. Load faster-whisper Model
     faster_whisper_model_instance: WhisperModel

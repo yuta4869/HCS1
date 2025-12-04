@@ -141,6 +141,8 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         self.baseline_duration_var = tk.IntVar(value=config.DEFAULT_BASELINE_MEASUREMENT_DURATION)
         self.reference_hr_var = tk.StringVar(value=str(self.hr_monitor.get_reference_hr()))
+        self.subject_id_var = tk.StringVar(value="")
+        self.current_subject_id: Optional[str] = None
 
         # ビデオ録画機能の初期化
         # 会話システム優先: 2つ目のマイクがある場合のみ映像に音声を付ける
@@ -257,6 +259,21 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         self.hr_status_label.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=2, padx=5)
         self.h10_status_label = ttk.Label(hr_frame, text="H10: 未接続", foreground="red", style='Status.TLabel')
         self.h10_status_label.grid(row=3, column=2, columnspan=3, sticky=tk.W, pady=2, padx=5)
+        row_idx += 1
+
+        # --- Session Information Frame ---
+        session_frame = ttk.LabelFrame(main_frame, text="セッション情報", padding="10")
+        session_frame.grid(row=row_idx, column=0, columnspan=5, sticky="ew", padx=5, pady=5)
+        session_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(session_frame, text="被験者番号:").grid(row=0, column=0, sticky=tk.W, pady=2, padx=5)
+        self.subject_entry = ttk.Entry(session_frame, textvariable=self.subject_id_var, width=12)
+        self.subject_entry.grid(row=0, column=1, sticky=tk.W, pady=2, padx=5)
+        ttk.Label(session_frame, text="(半角英数字/-/_)").grid(row=0, column=2, sticky=tk.W, pady=2, padx=5)
+        self.subject_hint_label = ttk.Label(session_frame, text="番号未設定", foreground="red", style='Status.TLabel')
+        self.subject_hint_label.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(2,0), padx=5)
+        self.subject_id_var.trace_add("write", self._on_subject_id_change)
+        self._update_subject_id_hint()
         row_idx += 1
 
         # --- Prosody Parameters Frame ---
@@ -400,6 +417,26 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         )
         interim_label.grid(row=row_idx + 1, column=0, columnspan=5, sticky="ew", padx=5, pady=2)
 
+
+    def _on_subject_id_change(self, *_) -> None:
+        self._update_subject_id_hint()
+
+    def _get_sanitized_subject_id(self) -> str:
+        raw_value = self.subject_id_var.get().strip()
+        return "".join(ch for ch in raw_value if ch.isalnum() or ch in ("-", "_"))
+
+    def _update_subject_id_hint(self) -> None:
+        sanitized = self._get_sanitized_subject_id()
+        if hasattr(self, 'subject_hint_label'):
+            if sanitized:
+                self.subject_hint_label.config(
+                    text=f"ファイル名に '{sanitized}' を使用", foreground="green"
+                )
+            else:
+                self.subject_hint_label.config(text="番号未設定", foreground="red")
+        subject_value = sanitized if sanitized else None
+        self.conversation_manager.set_subject_id(subject_value)
+        self.hr_monitor.set_subject_id(subject_value)
 
     def _check_interim_transcription_queue(self):
         """Periodically check the interim transcription queue and update the UI."""
@@ -660,10 +697,15 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         # 現在のモードを取得（Sin/HRF/Fixed）
         self.current_session_mode = self.prosody.get_current_mode()
         self._log_to_console(f"セッションモード: {self.prosody.get_current_mode_display()}")
+        subject_id = self.current_subject_id or self._get_sanitized_subject_id()
 
         log_files_initialized_names: List[str] = []
         try:
-            self.conversation_manager.initialize_conversation_csv_log(self.current_session_timestamp, self.current_session_mode)
+            self.conversation_manager.initialize_conversation_csv_log(
+                self.current_session_timestamp,
+                self.current_session_mode,
+                subject_id=subject_id
+            )
             if self.conversation_manager.csv_log_filepath:
                 log_files_initialized_names.append("会話CSV")
         except Exception as e_conv_csv_init:
@@ -671,26 +713,44 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         if self.hr_monitor.is_connected:
             try:
-                verity_hr_path = get_timestamped_log_path(config.VERITY_HR_SESSION_CSV_TEMPLATE, self.current_session_timestamp, self.current_session_mode)
+                verity_hr_path = get_timestamped_log_path(
+                    config.VERITY_HR_SESSION_CSV_TEMPLATE,
+                    self.current_session_timestamp,
+                    self.current_session_mode,
+                    subject_id=subject_id
+                )
                 self.hr_monitor.initialize_verity_hr_session_csv(verity_hr_path)
                 log_files_initialized_names.append("Verity HRセッション")
             except Exception as e_vhr_init: print(f"Verity HRセッションログ初期化エラー: {e_vhr_init}")
 
         if self.h10_monitor.is_connected:
             try:
-                h10_ecg_path = get_timestamped_log_path(config.H10_ECG_SESSION_CSV_TEMPLATE, self.current_session_timestamp, self.current_session_mode)
+                h10_ecg_path = get_timestamped_log_path(
+                    config.H10_ECG_SESSION_CSV_TEMPLATE,
+                    self.current_session_timestamp,
+                    self.current_session_mode,
+                    subject_id=subject_id
+                )
                 self.h10_monitor.initialize_h10_ecg_session_csv(h10_ecg_path)
                 log_files_initialized_names.append("H10 ECGセッション")
             except Exception as e_h10e_init: print(f"H10 ECGセッションログ初期化エラー: {e_h10e_init}")
             try:
-                h10_hr_path = get_timestamped_log_path(config.H10_HR_SESSION_CSV_TEMPLATE, self.current_session_timestamp, self.current_session_mode)
+                h10_hr_path = get_timestamped_log_path(
+                    config.H10_HR_SESSION_CSV_TEMPLATE,
+                    self.current_session_timestamp,
+                    self.current_session_mode,
+                    subject_id=subject_id
+                )
                 self.h10_monitor.initialize_h10_hr_session_csv(h10_hr_path)
                 log_files_initialized_names.append("H10 HRセッション")
             except Exception as e_h10h_init: print(f"H10 HRセッションログ初期化エラー: {e_h10h_init}")
 
         try:
             hr_after_tts_filepath = get_timestamped_log_path(
-                config.HEARTRATE_AFTER_TTS_CSV_TEMPLATE, self.current_session_timestamp, self.current_session_mode
+                config.HEARTRATE_AFTER_TTS_CSV_TEMPLATE,
+                self.current_session_timestamp,
+                self.current_session_mode,
+                subject_id=subject_id
             )
             os.makedirs(os.path.dirname(hr_after_tts_filepath), exist_ok=True)
             header_hr_tts = [
@@ -706,7 +766,10 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         try:
             hr_at_rec_start_filepath = get_timestamped_log_path(
-                config.HEARTRATE_AT_RECORDING_START_CSV_TEMPLATE, self.current_session_timestamp, self.current_session_mode
+                config.HEARTRATE_AT_RECORDING_START_CSV_TEMPLATE,
+                self.current_session_timestamp,
+                self.current_session_mode,
+                subject_id=subject_id
             )
             os.makedirs(os.path.dirname(hr_at_rec_start_filepath), exist_ok=True)
             header_hr_rec_start = ["Timestamp", "HR at Recording Start (BPM)", "Mode"]
@@ -1168,6 +1231,12 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
             self._log_to_console("Error: Conversation/processing/baseline measurement already active.")
             messagebox.showwarning("Busy", "他の処理が実行中です。")
             return
+        subject_id = self._get_sanitized_subject_id()
+        if not subject_id:
+            messagebox.showwarning("被験者番号未設定", "会話を開始する前に被験者番号を入力してください。")
+            if hasattr(self, 'subject_entry'):
+                self.subject_entry.focus_set()
+            return
         if not os.getenv("OPENAI_API_KEY"):
             messagebox.showerror("APIキーエラー", "OpenAI APIキーが設定されていません。\n環境変数 'OPENAI_API_KEY' を確認してください。")
             return
@@ -1183,6 +1252,11 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         if self.status_display_window and not self.status_window_visible:
             self.toggle_status_window()
 
+        self.current_subject_id = subject_id
+        self.conversation_manager.set_subject_id(subject_id)
+        self.hr_monitor.set_subject_id(subject_id)
+        self._log_to_console(f"被験者番号: {subject_id}")
+
         self.current_session_timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         self._log_to_console(f"--- 新しい会話セッション開始 (タイムスタンプ: {self.current_session_timestamp}) ---")
         self.after(0, self._clear_ai_speech_display)
@@ -1192,7 +1266,11 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         # ビデオ録画を開始（有効な場合）
         if self.video_recording_enabled.get():
-            if self.video_recorder.start_recording(self.current_session_timestamp, self.current_session_mode):
+            if self.video_recorder.start_recording(
+                self.current_session_timestamp,
+                self.current_session_mode,
+                self.current_subject_id
+            ):
                 self._log_to_console("ビデオ録画を開始しました")
             else:
                 self._log_to_console("警告: ビデオ録画の開始に失敗しました（カメラが見つからない可能性）")
@@ -1258,6 +1336,7 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
             self.log_queue.put(("remove_handler", config.LOGGER_HR_AT_RECORDING_START))
 
         self.current_session_timestamp = None
+        self.current_subject_id = None
         self.conversation_start_time = None
         self._log_to_console("--- 会話セッション終了 ---")
         self.after(0, self._clear_ai_speech_display)
@@ -1440,4 +1519,3 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         # bleakのCore Bluetoothバックエンドのクリーンアップ問題を回避
         import os
         os._exit(0)
-

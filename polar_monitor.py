@@ -30,6 +30,7 @@ class HeartRateMonitor:
         self.verity_hr_session_filepath: str = ""
         self.baseline_hr_samples: List[int] = []
         self.is_measuring_baseline: bool = False
+        self.subject_id: Optional[str] = None
 
     async def start_monitoring_async(self) -> bool:
         """Asynchronous method to connect and start monitoring."""
@@ -54,13 +55,20 @@ class HeartRateMonitor:
     def initialize_hr_prosody_csv(self) -> None:
         """Stores the intended path for the HR/Prosody log and signals logger thread."""
         try:
-            self.hr_prosody_filepath = get_timestamped_log_path(config.HR_PROSODY_CSV_TEMPLATE)
+            self.hr_prosody_filepath = get_timestamped_log_path(
+                config.HR_PROSODY_CSV_TEMPLATE,
+                subject_id=self.subject_id
+            )
             header = ["Timestamp", "Heart Rate (BPM)", "Prosody Level Applied", "Reference HR"]
             self.log_queue.put(("add_handler", config.LOGGER_HR_PROSODY, self.hr_prosody_filepath, header))
             print(f"HR and Prosody log (Verity) ready: {self.hr_prosody_filepath}")
         except Exception as e:
             print(f"Failed to set HR and Prosody log path (Verity): {e}")
             self.hr_prosody_filepath = ""
+
+    def set_subject_id(self, subject_id: Optional[str]) -> None:
+        """Sets the subject ID used for log file naming."""
+        self.subject_id = subject_id.strip() if subject_id else None
 
     def initialize_verity_hr_session_csv(self, filepath: str) -> None:
         """Stores the intended path for the Verity HR session log and signals logger thread."""
