@@ -9,6 +9,20 @@ import queue # queue.Queue は main.py などでインスタンス化され、Lo
 import threading
 from typing import Optional, List, Any
 
+
+def format_subject_id_for_filename(subject_id: Optional[str]) -> str:
+    """Returns the subject ID formatted for file names with the required 'No' prefix."""
+    sanitized = subject_id.strip() if subject_id else ""
+    if not sanitized:
+        return "NA"
+
+    # Avoid duplicating the prefix if the user already typed it (case-insensitive check)
+    if sanitized[:2].lower() == "no":
+        # Normalize the prefix to "No" for consistency while respecting the rest of the ID
+        return f"No{sanitized[2:]}" if not sanitized.startswith("No") else sanitized
+
+    return f"No{sanitized}"
+
 # config.py から LOG_DIR をインポートすることを想定
 # 例: from . import config (同じディレクトリにある場合)
 # または、initialize_log_directory が LOG_DIR を引数で受け取るように変更も可能
@@ -33,7 +47,7 @@ def get_timestamped_log_path(template: str,
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     else:
         timestamp = session_timestamp
-    subject_component = subject_id.strip() if subject_id else "NA"
+    subject_component = format_subject_id_for_filename(subject_id)
     return template.format(
         timestamp=timestamp,
         session_timestamp=timestamp,

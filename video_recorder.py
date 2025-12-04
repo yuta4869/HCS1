@@ -18,6 +18,7 @@ from typing import Optional, List
 
 import config
 from audio_device_utils import get_video_mic_device
+from logger_utils import format_subject_id_for_filename
 
 
 class VideoRecorder:
@@ -142,7 +143,7 @@ class VideoRecorder:
         Returns:
             出力ファイルパス
         """
-        subject_component = subject_id.strip() if subject_id else "NA"
+        subject_component = format_subject_id_for_filename(subject_id)
         return self.VIDEO_FILE_TEMPLATE.format(
             session_timestamp=session_timestamp,
             mode=mode,
@@ -268,8 +269,8 @@ class VideoRecorder:
         print(f"[VideoRecorder] カメラ解像度: {actual_width}x{actual_height}")
 
         # 出力ファイルパスを設定
-        subject_component = subject_id.strip() if subject_id else "NA"
-        self._current_filepath = self._get_output_filepath(session_timestamp, mode, subject_component)
+        subject_component = format_subject_id_for_filename(subject_id)
+        self._current_filepath = self._get_output_filepath(session_timestamp, mode, subject_id)
         self._temp_video_path = self.TEMP_VIDEO_TEMPLATE.format(
             session_timestamp=session_timestamp,
             mode=mode,

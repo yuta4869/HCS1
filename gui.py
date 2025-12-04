@@ -16,7 +16,7 @@ from tkinter import font, messagebox, scrolledtext, ttk
 import numpy as np
 
 import config
-from logger_utils import LoggingThread, get_timestamped_log_path
+from logger_utils import LoggingThread, get_timestamped_log_path, format_subject_id_for_filename
 from polar_monitor import HeartRateMonitor, H10Monitor
 from conversation_manager import ConversationManager
 from audio_processing import ProsodySettings, SpeakerSettings, AudioProcessor, VoicevoxManager
@@ -441,8 +441,9 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         sanitized = self._get_sanitized_subject_id()
         if hasattr(self, 'subject_hint_label'):
             if sanitized:
+                subject_component = format_subject_id_for_filename(sanitized)
                 self.subject_hint_label.config(
-                    text=f"ファイル名に '{sanitized}' を使用", foreground="green"
+                    text=f"ファイル名に '{subject_component}' を使用", foreground="green"
                 )
             else:
                 self.subject_hint_label.config(text="番号未設定", foreground="red")
