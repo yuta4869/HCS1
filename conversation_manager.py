@@ -10,7 +10,7 @@ import soundfile as sf
 import numpy as np
 
 import config
-from logger_utils import get_timestamped_log_path
+from logger_utils import get_timestamped_log_path, format_subject_id_for_filename
 
 
 class ConversationManager:
@@ -268,7 +268,7 @@ class ConversationManager:
                 wav_filename = None
                 if config.SAVE_UTTERANCE_WAV and isinstance(audio_data, np.ndarray):
                     session_id = self.current_session_timestamp_for_csv or "session"
-                    subject_component = self.subject_id or "NA"
+                    subject_component = format_subject_id_for_filename(self.subject_id)
                     filename = f"{subject_component}_{session_id}_turn_{self.turn_counter:03d}.wav"
                     wav_filename = os.path.join(config.UTTERANCE_WAV_DIR, filename)
                     try:
