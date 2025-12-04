@@ -191,7 +191,8 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
     def setup_ui(self) -> None:
         self.title(f"心拍数連動AI音声アシスタント (v{datetime.datetime.now().strftime('%Y.%m.%d')})")
-        self.geometry("850x1150")
+        self.geometry("900x950")
+        self.minsize(820, 900)
 
         self.default_font = font.nametofont("TkDefaultFont")
         self.default_font.configure(family="Helvetica", size=11)
@@ -362,6 +363,14 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
             font=self.default_font
         )
         self.system_prompt.grid(row=1, column=0, sticky="nsew", pady=(0,5), padx=5)
+        self.system_prompt.configure(
+            height=8,
+            background="white",
+            foreground="black",
+            insertbackground="black",
+            highlightthickness=1,
+            highlightbackground="#B0B0B0"
+        )
 
         prompt_button_frame = ttk.Frame(prompt_frame)
         prompt_button_frame.grid(row=2, column=0, sticky='ew', padx=5)
