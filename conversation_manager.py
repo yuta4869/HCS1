@@ -39,6 +39,11 @@ class ConversationManager:
         self.current_session_timestamp_for_csv: Optional[str] = None
         self.turn_counter: int = 0
         self._stop_conversation: bool = False
+        self.subject_id: Optional[str] = None
+
+    def set_subject_id(self, subject_id: Optional[str]) -> None:
+        """被験者番号を更新し、ファイル名に反映できるようにする。"""
+        self.subject_id = subject_id.strip() if subject_id else None
 
     def set_system_prompt(self, prompt: str) -> None:
         """system役の最初の文を履歴の先頭に入れる（既存のsystemは消す）。"""
@@ -115,7 +120,10 @@ class ConversationManager:
         # Use existing _ensure_text_log_open for consistency
         self._ensure_text_log_open()
 
-    def initialize_conversation_csv_log(self, session_timestamp: str, mode: str = "Fixed") -> None:
+    def initialize_conversation_csv_log(self,
+                                        session_timestamp: str,
+                                        mode: str = "Fixed",
+                                        subject_id: Optional[str] = None) -> None:
         """
         Initializes the CSV conversation log for the current session via the log_queue.
 
@@ -131,12 +139,15 @@ class ConversationManager:
         if config.SAVE_UTTERANCE_WAV:
             os.makedirs(config.UTTERANCE_WAV_DIR, exist_ok=True)
 
+        if subject_id:
+            self.set_subject_id(subject_id)
         self.current_session_timestamp_for_csv = session_timestamp
         self.current_session_mode = mode  # モードを保存
         csv_path = get_timestamped_log_path(
             config.CONVERSATION_CSV_LOG_FILE_TEMPLATE,
             session_timestamp=self.current_session_timestamp_for_csv,
-            mode=mode
+            mode=mode,
+            subject_id=self.subject_id
         )
         self.csv_log_filepath = csv_path
 
@@ -165,7 +176,10 @@ class ConversationManager:
         if self.log_filepath:
             return
         template = config.CONVERSATION_LOG_FILE_TEMPLATE
-        self.log_filepath = get_timestamped_log_path(template)
+        self.log_filepath = get_timestamped_log_path(
+            template,
+            subject_id=self.subject_id
+        )
         try:
             os.makedirs(os.path.dirname(self.log_filepath), exist_ok=True)
             with open(self.log_filepath, "a", encoding="utf-8") as f:
@@ -254,7 +268,8 @@ class ConversationManager:
                 wav_filename = None
                 if config.SAVE_UTTERANCE_WAV and isinstance(audio_data, np.ndarray):
                     session_id = self.current_session_timestamp_for_csv or "session"
-                    filename = f"{session_id}_turn_{self.turn_counter:03d}.wav"
+                    subject_component = self.subject_id or "NA"
+                    filename = f"{subject_component}_{session_id}_turn_{self.turn_counter:03d}.wav"
                     wav_filename = os.path.join(config.UTTERANCE_WAV_DIR, filename)
                     try:
                         sf.write(wav_filename, audio_data, self.audio_processor.sample_rate)

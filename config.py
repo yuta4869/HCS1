@@ -70,17 +70,17 @@ CONFIG_FILE = resource_path("config_heartrate_prosody.json")
 
 # --- Log File Templates ---
 # モード名: Sin (正弦波), HRF (心拍フィードバック), Fixed (抑揚固定)
-CONVERSATION_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{timestamp}.txt")
-CONVERSATION_CSV_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{session_timestamp}_{mode}.csv")
-HR_PROSODY_CSV_TEMPLATE = os.path.join(LOG_DIR, "verity_hr_prosody_{timestamp}.csv")
+CONVERSATION_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{subject_id}_{timestamp}.txt")
+CONVERSATION_CSV_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{subject_id}_{session_timestamp}_{mode}.csv")
+HR_PROSODY_CSV_TEMPLATE = os.path.join(LOG_DIR, "verity_hr_prosody_{subject_id}_{timestamp}.csv")
 
-HEARTRATE_AFTER_TTS_CSV_TEMPLATE = os.path.join(LOG_DIR, "heartrate_after_tts_{session_timestamp}_{mode}.csv")
-HEARTRATE_AT_RECORDING_START_CSV_TEMPLATE = os.path.join(LOG_DIR, "heartrate_at_recording_start_{session_timestamp}_{mode}.csv")
+HEARTRATE_AFTER_TTS_CSV_TEMPLATE = os.path.join(LOG_DIR, "heartrate_after_tts_{subject_id}_{session_timestamp}_{mode}.csv")
+HEARTRATE_AT_RECORDING_START_CSV_TEMPLATE = os.path.join(LOG_DIR, "heartrate_at_recording_start_{subject_id}_{session_timestamp}_{mode}.csv")
 
-VERITY_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "verity_hr_session_{session_timestamp}_{mode}.csv")
-H10_ECG_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_ecg_session_{session_timestamp}_{mode}.csv")
-H10_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_hr_session_{session_timestamp}_{mode}.csv")
-INTERACTION_EVENT_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "interaction_events_{session_timestamp}_{mode}.csv")
+VERITY_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "verity_hr_session_{subject_id}_{session_timestamp}_{mode}.csv")
+H10_ECG_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_ecg_session_{subject_id}_{session_timestamp}_{mode}.csv")
+H10_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_hr_session_{subject_id}_{session_timestamp}_{mode}.csv")
+INTERACTION_EVENT_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "interaction_events_{subject_id}_{session_timestamp}_{mode}.csv")
 
 # --- API and Service URLs ---
 VOICEVOX_URL = "http://localhost:50021"

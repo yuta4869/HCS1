@@ -13,14 +13,18 @@ from typing import Optional, List, Any
 # 例: from . import config (同じディレクトリにある場合)
 # または、initialize_log_directory が LOG_DIR を引数で受け取るように変更も可能
 
-def get_timestamped_log_path(template: str, session_timestamp: Optional[str] = None, mode: str = "Fixed") -> str:
+def get_timestamped_log_path(template: str,
+                             session_timestamp: Optional[str] = None,
+                             mode: str = "Fixed",
+                             subject_id: Optional[str] = None) -> str:
     """
     Generates a log file path with the current or session timestamp and mode.
 
     Args:
-        template: ファイルパステンプレート（{timestamp}, {session_timestamp}, {mode}を含む）
+        template: ファイルパステンプレート（{timestamp}, {session_timestamp}, {mode}, {subject_id}を含められる）
         session_timestamp: セッションタイムスタンプ（Noneの場合は現在時刻）
         mode: モード名 (Sin/HRF/Fixed)
+        subject_id: 被験者番号（ファイル名に使用）
 
     Returns:
         フォーマット済みのファイルパス
@@ -29,7 +33,13 @@ def get_timestamped_log_path(template: str, session_timestamp: Optional[str] = N
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
     else:
         timestamp = session_timestamp
-    return template.format(timestamp=timestamp, session_timestamp=timestamp, mode=mode)
+    subject_component = subject_id.strip() if subject_id else "NA"
+    return template.format(
+        timestamp=timestamp,
+        session_timestamp=timestamp,
+        mode=mode,
+        subject_id=subject_component
+    )
 
 def initialize_log_directory(log_dir_path: str):
     """Creates the log directory if it doesn't exist."""

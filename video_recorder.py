@@ -33,9 +33,9 @@ class VideoRecorder:
 
     # 録画ファイルの保存先テンプレート
     # モード名: Sin (正弦波), HRF (心拍フィードバック), Fixed (抑揚固定)
-    VIDEO_FILE_TEMPLATE = os.path.join(config.LOG_DIR, "video_session_{session_timestamp}_{mode}.mp4")
-    TEMP_VIDEO_TEMPLATE = os.path.join(config.LOG_DIR, "temp_video_{session_timestamp}_{mode}.mp4")
-    TEMP_AUDIO_TEMPLATE = os.path.join(config.LOG_DIR, "temp_audio_{session_timestamp}_{mode}.wav")
+    VIDEO_FILE_TEMPLATE = os.path.join(config.LOG_DIR, "video_session_{subject_id}_{session_timestamp}_{mode}.mp4")
+    TEMP_VIDEO_TEMPLATE = os.path.join(config.LOG_DIR, "temp_video_{subject_id}_{session_timestamp}_{mode}.mp4")
+    TEMP_AUDIO_TEMPLATE = os.path.join(config.LOG_DIR, "temp_audio_{subject_id}_{session_timestamp}_{mode}.wav")
 
     def __init__(self,
                  camera_index: int = 0,
@@ -131,7 +131,7 @@ class VideoRecorder:
 
         return -1
 
-    def _get_output_filepath(self, session_timestamp: str, mode: str) -> str:
+    def _get_output_filepath(self, session_timestamp: str, mode: str, subject_id: Optional[str] = None) -> str:
         """
         録画ファイルの出力パスを生成する
 
@@ -142,7 +142,12 @@ class VideoRecorder:
         Returns:
             出力ファイルパス
         """
-        return self.VIDEO_FILE_TEMPLATE.format(session_timestamp=session_timestamp, mode=mode)
+        subject_component = subject_id.strip() if subject_id else "NA"
+        return self.VIDEO_FILE_TEMPLATE.format(
+            session_timestamp=session_timestamp,
+            mode=mode,
+            subject_id=subject_component
+        )
 
     def _audio_callback(self, indata, frames, time_info, status):
         """音声録音コールバック"""
@@ -222,7 +227,7 @@ class VideoRecorder:
             print(f"[VideoRecorder] 結合中に例外発生: {e}")
             return False
 
-    def start_recording(self, session_timestamp: str, mode: str = "Fixed") -> bool:
+    def start_recording(self, session_timestamp: str, mode: str = "Fixed", subject_id: Optional[str] = None) -> bool:
         """
         録画を開始する（映像＋音声）
 
@@ -263,9 +268,18 @@ class VideoRecorder:
         print(f"[VideoRecorder] カメラ解像度: {actual_width}x{actual_height}")
 
         # 出力ファイルパスを設定
-        self._current_filepath = self._get_output_filepath(session_timestamp, mode)
-        self._temp_video_path = self.TEMP_VIDEO_TEMPLATE.format(session_timestamp=session_timestamp, mode=mode)
-        self._temp_audio_path = self.TEMP_AUDIO_TEMPLATE.format(session_timestamp=session_timestamp, mode=mode)
+        subject_component = subject_id.strip() if subject_id else "NA"
+        self._current_filepath = self._get_output_filepath(session_timestamp, mode, subject_component)
+        self._temp_video_path = self.TEMP_VIDEO_TEMPLATE.format(
+            session_timestamp=session_timestamp,
+            mode=mode,
+            subject_id=subject_component
+        )
+        self._temp_audio_path = self.TEMP_AUDIO_TEMPLATE.format(
+            session_timestamp=session_timestamp,
+            mode=mode,
+            subject_id=subject_component
+        )
 
         # VideoWriterを初期化（一時ファイルに保存）
         fourcc = cv2.VideoWriter_fourcc(*self.codec)

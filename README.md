@@ -113,6 +113,12 @@ After setting up the environment and activating it (`source .venv/bin/activate`)
     deactivate
     ```
 
+### Subject Number Tagging
+
+The GUI now contains a **セッション情報** section where you must enter the participant (被験者) number before starting a conversation.  
+Only half-width alphanumeric characters, hyphen (`-`), and underscore (`_`) are allowed; other characters are ignored.  
+The entered number is embedded into the filenames of conversation logs, physiological CSVs, and recorded videos so that every artifact can be traced back to a specific participant.
+
 ## Configuration
 
 *   **`config.py`:** Contains general configuration for the application, including Whisper model settings, compute types, and logging options.
