@@ -263,16 +263,19 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         row_idx += 1
 
         # --- Session Information Frame ---
-        session_frame = ttk.LabelFrame(main_frame, text="セッション情報", padding="10")
-        session_frame.grid(row=row_idx, column=0, columnspan=5, sticky="ew", padx=5, pady=5)
-        session_frame.columnconfigure(1, weight=1)
+        session_container = ttk.Frame(main_frame)
+        session_container.grid(row=row_idx, column=0, columnspan=5, sticky="w", padx=5, pady=5)
+
+        session_frame = ttk.LabelFrame(session_container, text="セッション情報", padding="10")
+        session_frame.pack(anchor="w")
+        session_frame.columnconfigure(1, weight=0)
 
         ttk.Label(session_frame, text="被験者番号:").grid(row=0, column=0, sticky=tk.W, pady=2, padx=5)
         self.subject_entry = ttk.Entry(session_frame, textvariable=self.subject_id_var, width=12)
         self.subject_entry.grid(row=0, column=1, sticky=tk.W, pady=2, padx=5)
         ttk.Label(session_frame, text="(半角英数字/-/_)").grid(row=0, column=2, sticky=tk.W, pady=2, padx=5)
         self.subject_hint_label = ttk.Label(session_frame, text="番号未設定", foreground="red", style='Status.TLabel')
-        self.subject_hint_label.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(2,0), padx=5)
+        self.subject_hint_label.grid(row=0, column=3, sticky=tk.W, pady=2, padx=(10,5))
         self.subject_id_var.trace_add("write", self._on_subject_id_change)
         self._update_subject_id_hint()
         row_idx += 1
