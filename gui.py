@@ -1407,7 +1407,7 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
                 print(f"User: {user_text}")
                 self._log_to_console(f"ユーザー発話処理完了: {user_text[:70]}{'...' if len(user_text)>70 else ''}")
                 self.set_status("AI応答を生成中...", "orange")
-                self._log_to_console("OpenAI APIに問い合わせ開始 (モデル: gpt-4-turbo-preview)")
+                self._log_to_console("OpenAI APIに問い合わせ開始 (モデル: gpt-4o-mini)")
                 assistant_response_text = "申し訳ありません、応答を処理できませんでした。"
                 
                 try:
@@ -1415,7 +1415,7 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
                     self._log_to_console(f"OpenAI APIに送信するメッセージ数: {len(messages_to_send)}")
 
                     response = self.openai_client.chat.completions.create(
-                        model="gpt-4-turbo-preview", 
+                        model="gpt-4o-mini",
                         messages=messages_to_send,
                         max_tokens=200,
                         temperature=0.7,
