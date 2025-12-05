@@ -9,10 +9,26 @@ import signal
 import sys
 import threading
 import time
+import re
 from typing import Optional, Any, List, Dict
+from collections import defaultdict
+from pathlib import Path
 
 import tkinter as tk
-from tkinter import font, messagebox, scrolledtext, ttk
+from tkinter import font, messagebox, scrolledtext, ttk, filedialog
+
+import numpy as np
+import pandas as pd
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib import rcParams
+try:
+    import japanize_matplotlib  # noqa: F401  # 日本語フォントを使うための読み込み
+except ImportError:
+    pass  # japanize_matplotlibがない場合は無視
 
 import config
 from logger_utils import LoggingThread, get_timestamped_log_path
@@ -21,6 +37,16 @@ from conversation_manager import ConversationManager
 from audio_processing import ProsodySettings, SpeakerSettings, AudioProcessor, VoicevoxManager
 
 import openai
+
+# Analys解析用の定数と設定
+FILENAME_PATTERN = re.compile(r".*_No(?P<subject>\d+)_\d{8}_\d{6}_(?P<condition>Sin|Fixed|HRF)\.csv$", re.IGNORECASE)
+ANALYS_CONDITION_MAP = {"sin": "Sin", "fixed": "Fixed", "hrf": "HRF"}
+ANALYS_CONDITION_ORDER = ["Sin", "Fixed", "HRF"]
+
+# Analys_Q用の設定
+Q_CONDITION_MAP = {1: "Fixed", 2: "HRF", 3: "Sin"}
+Q_CONDITION_ORDER = ["Fixed", "HRF", "Sin"]
+Q_CONDITION_COLORS = {"Fixed": "#f6b5b5", "HRF": "#fff2a6", "Sin": "#a5c8ff"}
 
 
 class StatusDisplayWindow(tk.Toplevel):
@@ -86,6 +112,437 @@ class StatusDisplayWindow(tk.Toplevel):
         self.prompt_message_var.set("")
         self.update_idletasks()
 
+
+# =========================================================================
+# Analys (ECG/HRV解析) 関連のヘルパー関数
+# =========================================================================
+
+def analys_bandpass_filter(signal_data, fs):
+    """バンドパスフィルタ (0.5Hz - 50Hz)"""
+    from scipy.signal import butter, filtfilt
+    lowcut = 0.5
+    highcut = 50
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = highcut / nyq
+    b, a = butter(5, [low, high], btype='band')
+    return filtfilt(b, a, signal_data)
+
+
+def analys_ecg_to_rri(file_path, fs=130):
+    """ECGデータからRRIを算出する"""
+    from scipy.signal import find_peaks
+    from itertools import accumulate
+    try:
+        data = pd.read_csv(file_path, delimiter=',', encoding="utf-8", skiprows=1, header=None, usecols=[0, 2], names=['timestamp', 'ecg'])
+    except ValueError:
+        print(f"エラー: {os.path.basename(file_path)} の読み込みに失敗しました。")
+        return np.array([]), None, None
+
+    data['timestamp'] = pd.to_datetime(data['timestamp'])
+    start_time_real = data['timestamp'].iloc[0]
+    end_time_real = data['timestamp'].iloc[-1]
+    duration_seconds = (end_time_real - start_time_real).total_seconds()
+
+    if duration_seconds < 60:
+        print(f"  -> 短いデータを検出 ({duration_seconds:.1f}秒): 全期間を解析します")
+        analysis_start_time = start_time_real
+        analysis_end_time = end_time_real
+        data_filtered = data
+    else:
+        print(f"  -> 長いデータを検出 ({duration_seconds:.1f}秒): 30秒後から5分間を解析します")
+        analysis_start_time = start_time_real + pd.Timedelta(seconds=30)
+        analysis_end_time = start_time_real + pd.Timedelta(minutes=5, seconds=30)
+        data_filtered = data[(data['timestamp'] >= analysis_start_time) & (data['timestamp'] <= analysis_end_time)]
+
+    if data_filtered.empty:
+        print("  -> エラー: 解析対象期間のデータが空です。")
+        return np.array([]), None, None
+
+    ecg_data = data_filtered['ecg'].values
+    filtered_ecg = analys_bandpass_filter(ecg_data, fs)
+    diff_ecg = np.diff(filtered_ecg)
+    squared_ecg = diff_ecg ** 2
+    window_size = int(0.150 * fs)
+    integrated_ecg = np.convolve(squared_ecg, np.ones(window_size) / window_size, mode='same')
+    height_threshold = np.mean(integrated_ecg) * 0.4
+    distance = fs * 0.3
+    peaks, _ = find_peaks(integrated_ecg, distance=distance, height=height_threshold)
+    rri_data = np.diff(peaks) * 1000 / fs
+
+    return rri_data, analysis_start_time, analysis_end_time
+
+
+def analys_calculate_hrv_indices(file_path, label, fs=130):
+    """指定されたファイルを解析し、時系列データと全体LF/HF値を返す"""
+    from scipy import interpolate
+    import scipy.signal
+
+    print(f"--- 解析開始: {label} ({os.path.basename(file_path)}) ---")
+    rri_data, start_time, end_time = analys_ecg_to_rri(file_path, fs)
+
+    if len(rri_data) == 0:
+        return None, None
+
+    from itertools import accumulate
+    time_data = list(accumulate(rri_data / 1000))
+    if not time_data:
+        return None, None
+
+    resampling_freq = 1
+    duration_total = int(time_data[-1])
+    time_axis = np.arange(0, duration_total, 1 / resampling_freq)
+
+    if len(time_data) < 4:
+        print("  -> データ点が少なすぎるためスキップします。")
+        return None, None
+
+    spline_func = interpolate.interp1d(time_data, rri_data, fill_value="extrapolate", kind='cubic')
+    rri = spline_func(time_axis)
+
+    # 前処理
+    if len(rri) > 10:
+        low_threshold = np.quantile(rri, 0.038)
+        high_threshold = np.quantile(rri, 0.962)
+        rri[(rri < low_threshold) | (rri > high_threshold)] = np.nan
+
+    df_temp = pd.DataFrame(data=rri, index=time_axis, columns=["rri"])
+    df_temp.interpolate(method='spline', order=3, inplace=True, limit_direction='both')
+    rri = df_temp["rri"].values
+
+    MinHR, MaxHR = 45, 210
+    rri[(rri > 60000 / MinHR) | (rri < 60000 / MaxHR)] = np.nan
+    df_temp = pd.DataFrame(data=rri, index=time_axis, columns=["rri"])
+    df_temp.interpolate(method='spline', order=3, inplace=True, limit_direction='both')
+    rri = df_temp["rri"].values
+
+    if len(rri) > 1:
+        prerri = np.roll(rri, 1)
+        prerri[0] = rri[0]
+        safe_prerri = np.where(prerri == 0, 1, prerri)
+        change_ratio = rri / safe_prerri
+        rri[(change_ratio < 0.7) | (change_ratio > 1.3)] = np.nan
+        df_temp = pd.DataFrame(data=rri, index=time_axis, columns=["rri"])
+        df_temp.interpolate(method='spline', order=3, inplace=True, limit_direction='both')
+        rri = df_temp["rri"].values
+
+    # 全体LF/HF計算
+    N_total = len(rri)
+    dt_total = 1 / resampling_freq
+    window_total = scipy.signal.windows.hann(N_total)
+    F_total = np.fft.fft(rri * window_total)
+    freq_total = np.fft.fftfreq(N_total, d=dt_total)
+    Amp_total = np.abs(F_total / (N_total / 2))
+
+    lf_mask_total = (freq_total >= 0.04) & (freq_total < 0.15)
+    hf_mask_total = (freq_total >= 0.15) & (freq_total < 0.4)
+    LF_total = np.sum(Amp_total[lf_mask_total])
+    HF_total = np.sum(Amp_total[hf_mask_total])
+    overall_lf_hf_val = LF_total / HF_total if HF_total != 0 else 0
+    print(f"  -> 全体LF/HF値: {overall_lf_hf_val:.4f}")
+
+    # スライディングウィンドウ解析
+    if len(rri) >= 30:
+        analysis_window = 30
+    elif len(rri) >= 10:
+        analysis_window = 10
+        print(f"  -> データが短いため、ウィンドウサイズを {analysis_window}秒 に短縮して解析します。")
+    else:
+        print("  -> データが短すぎて解析できません（10秒未満）。")
+        return None, None
+
+    LF_HF_sliding = []
+    RMSSD_sliding = []
+    time_points = []
+
+    i = 0
+    while i <= (len(rri) - analysis_window):
+        rri_window = rri[i: analysis_window + i]
+
+        N = len(rri_window)
+        dt = 1 / resampling_freq
+        window = scipy.signal.windows.hann(N)
+        F = np.fft.fft(rri_window * window)
+        freq = np.fft.fftfreq(N, d=dt)
+        Amp = np.abs(F / (N / 2))
+
+        lf_mask = (freq >= 0.04) & (freq < 0.15)
+        hf_mask = (freq >= 0.15) & (freq < 0.4)
+        LF = np.sum(Amp[lf_mask])
+        HF = np.sum(Amp[hf_mask])
+        lf_hf_val = LF / HF if HF != 0 else 0
+        LF_HF_sliding.append(lf_hf_val)
+
+        if len(rri_window) > 1:
+            diff_rri = np.diff(rri_window)
+            mssd = np.mean(np.square(diff_rri))
+            rmssd_val = np.sqrt(mssd)
+            RMSSD_sliding.append(rmssd_val)
+        else:
+            RMSSD_sliding.append(np.nan)
+
+        time_points.append(i)
+        i += 1
+
+    sliding_result_df = pd.DataFrame({
+        'Time': time_points,
+        'LF/HF': LF_HF_sliding,
+        'RMSSD': RMSSD_sliding
+    })
+
+    return sliding_result_df, overall_lf_hf_val
+
+
+def analys_run_batch_analysis(files_map, output_dir):
+    """バッチ解析を実行し、結果をExcelファイルに保存する"""
+    os.makedirs(output_dir, exist_ok=True)
+    combined_df = None
+    print("=== バッチ解析を開始します ===")
+
+    for label, filename in files_map.items():
+        file_path = filename
+        if not os.path.exists(file_path):
+            print(f"警告: ファイルが見つかりません -> {file_path}")
+            continue
+
+        sliding_df, overall_lfhf = analys_calculate_hrv_indices(file_path, label)
+
+        if sliding_df is not None and not sliding_df.empty:
+            sliding_output_path = os.path.join(output_dir, f"{label}_result.xlsx")
+            sliding_df.to_excel(sliding_output_path, index=False)
+            print(f"  -> 時系列結果を保存: {os.path.basename(sliding_output_path)}")
+
+            overall_output_path = os.path.join(output_dir, f"{label}_resultLFHF5min.xlsx")
+            overall_df_file = pd.DataFrame({'File Name': [filename], 'LF/HF (Overall)': [overall_lfhf]})
+            overall_df_file.to_excel(overall_output_path, index=False)
+            print(f"  -> 全体平均結果を保存: {os.path.basename(overall_output_path)}")
+
+            df_renamed = sliding_df.copy()
+            df_renamed.columns = ['Time', f'{label}_LF/HF', f'{label}_RMSSD']
+
+            if combined_df is None:
+                combined_df = df_renamed
+            else:
+                combined_df = pd.merge(combined_df, df_renamed, on='Time', how='outer')
+        else:
+            print(f"  -> {label} の解析結果が得られませんでした。")
+
+    if combined_df is not None:
+        combined_df.sort_values('Time', inplace=True)
+        cols = ['Time']
+        for label in files_map.keys():
+            if f'{label}_LF/HF' in combined_df.columns:
+                cols.append(f'{label}_LF/HF')
+                cols.append(f'{label}_RMSSD')
+
+        combined_df = combined_df[cols]
+        combined_output_path = os.path.join(output_dir, "Combined_HRV_Analysis.xlsx")
+        combined_df.to_excel(combined_output_path, index=False)
+        print(f"\n=== 全データの結合ファイルを保存しました ===")
+        print(f"保存先: {combined_output_path}")
+    else:
+        print("\n有効な解析結果が1つもありませんでした。")
+
+    print("\n処理完了。")
+
+
+def analys_generate_box_plots(input_file_path, output_dir):
+    """箱ひげ図を生成する"""
+    import matplotlib.patches as mpatches
+
+    conditions = {'Fixed': '固定会話', 'HRF': '調整会話', 'Sin': '正弦波'}
+    colors = {'固定会話': 'lightcoral', '調整会話': 'lightyellow', '正弦波': 'lightblue'}
+
+    if not os.path.exists(input_file_path):
+        raise FileNotFoundError(f"ファイルが見つかりません: {input_file_path}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    df = pd.read_excel(input_file_path)
+    print("データの読み込みに成功しました。")
+
+    saved_files = []
+
+    for metric_suffix, title, output_filename in [
+        ('_LF/HF', 'LF/HFの比較（時系列分布）', 'LFHF_Boxplot.png'),
+        ('_RMSSD', 'RMSSDの比較（時系列分布）', 'RMSSD_Boxplot.png')
+    ]:
+        print(f"--- {title} のグラフを作成中 ---")
+        plot_data = pd.DataFrame()
+        found_cols = False
+
+        for eng_key, jp_label in conditions.items():
+            col_name = f"{eng_key}{metric_suffix}"
+            if col_name in df.columns:
+                plot_data[jp_label] = df[col_name]
+                found_cols = True
+
+        if not found_cols:
+            print(f"エラー: {metric_suffix} に関するデータが見つかりませんでした。")
+            continue
+
+        df_melted = plot_data.melt(var_name='Condition', value_name='Value')
+        df_melted = df_melted.dropna()
+
+        fig, ax = plt.subplots(figsize=(10, 7))
+        order_labels = [conditions[key] for key in ANALYS_CONDITION_ORDER if conditions[key] in set(df_melted['Condition'])]
+        if not order_labels:
+            order_labels = list(df_melted['Condition'].unique())
+
+        palette = {label: colors.get(label, 'lightgray') for label in order_labels}
+        sns.boxplot(x='Condition', y='Value', data=df_melted, palette=palette, ax=ax, showfliers=False, width=0.5, order=order_labels)
+
+        legend_patches = [mpatches.Patch(color=palette[label], label=label) for label in order_labels]
+        ax.legend(handles=legend_patches, title="条件", loc='upper right')
+        ax.set_title(title, fontsize=16)
+        ax.set_ylabel(metric_suffix.replace('_', ''), fontsize=14)
+        ax.set_xlabel("条件", fontsize=14)
+        ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+        save_path = os.path.join(output_dir, output_filename)
+        plt.tight_layout()
+        plt.savefig(save_path, dpi=300)
+        print(f"保存完了: {save_path}")
+        plt.close()
+        saved_files.append(save_path)
+
+    print("\nすべてのグラフ作成が完了しました。")
+    return saved_files
+
+
+# =========================================================================
+# Analys_Q (アンケート解析) 関連のヘルパー関数
+# =========================================================================
+
+def analys_q_normalize_condition(value):
+    """Excelの条件列の値をラベルへ変換する。"""
+    if pd.isna(value):
+        return None
+    if value in Q_CONDITION_MAP:
+        return Q_CONDITION_MAP[value]
+    try:
+        as_int = int(value)
+    except (TypeError, ValueError):
+        text = str(value).strip()
+        for label in Q_CONDITION_ORDER:
+            if text.lower() == label.lower():
+                return label
+        return text or None
+    return Q_CONDITION_MAP.get(as_int, str(value))
+
+
+def analys_q_load_and_melt_data(file_path: str):
+    """Excelを読み込み、ロング形式DataFrameと設問タイトルを返す。"""
+    df = pd.read_excel(file_path)
+    if df.shape[1] < 4:
+        raise ValueError("必要な列（B〜W列）が足りません。")
+
+    top_row = pd.read_excel(file_path, header=None, nrows=1)
+
+    subject_series = df.iloc[:, 1].astype(str)
+    condition_series = df.iloc[:, 2].apply(analys_q_normalize_condition)
+    question_df_raw = df.iloc[:, 3:]
+    if question_df_raw.shape[1] <= 1:
+        raise ValueError("設問列が不足しています。")
+    question_df = question_df_raw.iloc[:, :-1].apply(pd.to_numeric, errors="coerce")
+    question_columns = question_df.columns.tolist()
+    title_end = 3 + len(question_columns)
+    question_titles = top_row.iloc[0, 3:title_end]
+    question_labels = {}
+    for col, title in zip(question_columns, question_titles):
+        title_str = str(title).strip()
+        question_labels[col] = title_str if title_str else col
+
+    tidy_df = question_df.copy()
+    tidy_df["Subject"] = subject_series
+    tidy_df["Condition"] = condition_series
+    tidy_df = tidy_df.melt(
+        id_vars=["Subject", "Condition"],
+        var_name="Question",
+        value_name="Score",
+    )
+    tidy_df = tidy_df.dropna(subset=["Score", "Condition"])
+    tidy_df["Question"] = pd.Categorical(tidy_df["Question"], categories=question_columns, ordered=True)
+    tidy_df["Condition"] = pd.Categorical(
+        tidy_df["Condition"], categories=Q_CONDITION_ORDER, ordered=True
+    )
+
+    if tidy_df.empty:
+        raise ValueError("有効な回答データが見つかりませんでした。")
+
+    return tidy_df, question_labels
+
+
+def analys_q_generate_plots(file_path: str):
+    """Excelを読み込み、箱ひげ図を作成する。"""
+    plt.close("all")
+    tidy_df, question_labels = analys_q_load_and_melt_data(file_path)
+    output_dir = Path(file_path).parent
+
+    palette = [Q_CONDITION_COLORS.get(name, "#999999") for name in Q_CONDITION_ORDER]
+
+    # サマリー箱ひげ図
+    g = sns.catplot(
+        data=tidy_df,
+        x="Condition",
+        y="Score",
+        col="Question",
+        col_wrap=3,
+        kind="box",
+        order=Q_CONDITION_ORDER,
+        palette=palette,
+        sharey=False,
+        height=3.8,
+    )
+    g.set_axis_labels("", "")
+    if g.axes is not None:
+        for ax in g.axes.flatten():
+            if ax is not None:
+                ax.set_title("")
+
+    output_path = output_dir / "question_boxplots_grid.png"
+    g.savefig(output_path, dpi=300, bbox_inches="tight")
+
+    # 各設問ごとの箱ひげ図
+    question_dir = output_dir / "question_boxplots"
+    question_dir.mkdir(exist_ok=True)
+
+    figure_paths = []
+    for question in tidy_df["Question"].cat.categories:
+        question_data = tidy_df[tidy_df["Question"] == question]
+        if question_data.empty:
+            continue
+        title = question_labels.get(question, question) or question
+        fig, ax = plt.subplots(figsize=(5, 4))
+        sns.boxplot(
+            data=question_data,
+            x="Condition",
+            y="Score",
+            order=Q_CONDITION_ORDER,
+            palette=palette,
+            ax=ax,
+        )
+        ax.set_title("")
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+        ax.grid(axis="y", linestyle="--", alpha=0.5)
+        fig.tight_layout()
+
+        filename = str(title).replace("/", "_").replace("\\", "_").replace(" ", "_")
+        path = question_dir / f"{filename}_boxplot.png"
+        fig.savefig(path, dpi=300)
+        figure_paths.append(path)
+        plt.close(fig)
+
+    return {
+        "summary_path": output_path,
+        "per_question_paths": figure_paths,
+        "figures": [g.fig],
+    }
+
+
+# =========================================================================
+# Application クラス
+# =========================================================================
 
 class Application(tk.Tk):
     """Main application class with Tkinter UI."""
@@ -178,7 +635,7 @@ class Application(tk.Tk):
 
     def setup_ui(self) -> None:
         self.title(f"心拍数連動AI音声アシスタント (v{datetime.datetime.now().strftime('%Y.%m.%d')})")
-        self.geometry("850x1150")
+        self.geometry("950x1200")
 
         self.default_font = font.nametofont("TkDefaultFont")
         self.default_font.configure(family="Helvetica", size=11)
@@ -202,8 +659,30 @@ class Application(tk.Tk):
         style.configure('TCheckbutton', font=self.check_font)
         style.configure('TLabelframe.Label', font=self.label_font)
 
-        main_frame = ttk.Frame(self, padding="15 15 15 15")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # タブ付きノートブックを作成
+        self.notebook = ttk.Notebook(self)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # タブ1: 会話システム
+        self.conversation_tab = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(self.conversation_tab, text="会話システム")
+
+        # タブ2: ECG/HRV解析 (Analys)
+        self.ecg_analysis_tab = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(self.ecg_analysis_tab, text="ECG/HRV解析")
+
+        # タブ3: アンケート解析 (Analys_Q)
+        self.questionnaire_tab = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(self.questionnaire_tab, text="アンケート解析")
+
+        # 各タブのUIを構築
+        self._setup_conversation_tab()
+        self._setup_ecg_analysis_tab()
+        self._setup_questionnaire_tab()
+
+    def _setup_conversation_tab(self) -> None:
+        """会話システムタブのUIを構築"""
+        main_frame = self.conversation_tab
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
         main_frame.columnconfigure(2, weight=2)
@@ -348,6 +827,375 @@ class Application(tk.Tk):
         self.status_label.grid(row=0, column=0, sticky="ew")
         self.elapsed_time_label = ttk.Label(status_bar_frame, text="", anchor=tk.E, style='Status.TLabel', padding="5 2")
         self.elapsed_time_label.grid(row=0, column=1, sticky="e")
+
+    def _setup_ecg_analysis_tab(self) -> None:
+        """ECG/HRV解析タブのUIを構築"""
+        main_frame = self.ecg_analysis_tab
+        main_frame.columnconfigure(0, weight=1)
+
+        # --- 入力フォルダ選択セクション ---
+        input_frame = ttk.LabelFrame(main_frame, text="入力設定", padding="10")
+        input_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        input_frame.columnconfigure(1, weight=1)
+
+        self.ecg_input_dir_var = tk.StringVar(value="入力フォルダが選択されていません。")
+
+        ttk.Label(input_frame, text="入力フォルダ:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        ttk.Label(input_frame, textvariable=self.ecg_input_dir_var, foreground="grey").grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+        ttk.Button(input_frame, text="参照...", command=self._browse_ecg_input_folder).grid(row=0, column=2, padx=5, pady=5)
+
+        # --- 出力フォルダ選択 ---
+        ttk.Label(input_frame, text="出力フォルダ:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        self.ecg_output_dir_var = tk.StringVar(value="出力フォルダが選択されていません。")
+        ttk.Label(input_frame, textvariable=self.ecg_output_dir_var, foreground="grey").grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+        ttk.Button(input_frame, text="参照...", command=self._browse_ecg_output_folder).grid(row=1, column=2, padx=5, pady=5)
+
+        # --- 実行ボタン ---
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=10)
+        button_frame.columnconfigure(0, weight=1)
+        button_frame.columnconfigure(1, weight=1)
+        button_frame.columnconfigure(2, weight=1)
+
+        self.ecg_run_button = ttk.Button(button_frame, text="HRV解析 実行", command=self._run_ecg_analysis)
+        self.ecg_run_button.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+
+        self.ecg_boxplot_button = ttk.Button(button_frame, text="箱ひげ図 生成", command=self._generate_ecg_boxplots)
+        self.ecg_boxplot_button.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+        self.ecg_combine_button = ttk.Button(button_frame, text="被験者統合", command=self._combine_ecg_subjects)
+        self.ecg_combine_button.grid(row=0, column=2, padx=5, pady=5, sticky="ew")
+
+        # --- ステータス表示 ---
+        self.ecg_status_var = tk.StringVar(value="フォルダを選択して解析を開始してください。")
+        status_label = ttk.Label(main_frame, textvariable=self.ecg_status_var, foreground="blue", wraplength=800)
+        status_label.grid(row=2, column=0, sticky="w", padx=10, pady=5)
+
+        # --- 結果プレビュー用フレーム ---
+        preview_frame = ttk.LabelFrame(main_frame, text="解析結果プレビュー", padding="10")
+        preview_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.columnconfigure(0, weight=1)
+        preview_frame.rowconfigure(0, weight=1)
+        main_frame.rowconfigure(3, weight=1)
+
+        self.ecg_preview_canvas_frame = ttk.Frame(preview_frame)
+        self.ecg_preview_canvas_frame.grid(row=0, column=0, sticky="nsew")
+        self.ecg_canvas_items = []
+
+        # ECG解析用の内部変数
+        self.ecg_input_dir = None
+        self.ecg_output_dir = None
+
+    def _setup_questionnaire_tab(self) -> None:
+        """アンケート解析タブのUIを構築"""
+        main_frame = self.questionnaire_tab
+        main_frame.columnconfigure(0, weight=1)
+
+        # --- ファイル選択セクション ---
+        input_frame = ttk.LabelFrame(main_frame, text="アンケートデータ", padding="10")
+        input_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        input_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(input_frame, text="実験後アンケート.xlsxを選択して箱ひげ図を生成してください。").grid(
+            row=0, column=0, columnspan=3, sticky="w", padx=5, pady=5
+        )
+
+        self.questionnaire_file_var = tk.StringVar(value="")
+
+        ttk.Label(input_frame, text="Excelファイル:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        ttk.Entry(input_frame, textvariable=self.questionnaire_file_var, width=50).grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+        ttk.Button(input_frame, text="参照...", command=self._browse_questionnaire_file).grid(row=1, column=2, padx=5, pady=5)
+
+        # --- 実行ボタン ---
+        button_frame = ttk.Frame(main_frame)
+        button_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=10)
+
+        self.questionnaire_run_button = ttk.Button(button_frame, text="箱ひげ図を作成", command=self._run_questionnaire_analysis)
+        self.questionnaire_run_button.pack(side=tk.LEFT, padx=5)
+
+        # --- ステータス表示 ---
+        self.questionnaire_status_var = tk.StringVar(value="ファイルを選択してください。")
+        status_label = ttk.Label(main_frame, textvariable=self.questionnaire_status_var, foreground="blue", wraplength=800)
+        status_label.grid(row=2, column=0, sticky="w", padx=10, pady=5)
+
+        # --- 結果プレビュー用フレーム ---
+        preview_frame = ttk.LabelFrame(main_frame, text="プレビュー", padding="10")
+        preview_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.columnconfigure(0, weight=1)
+        preview_frame.rowconfigure(0, weight=1)
+        main_frame.rowconfigure(3, weight=1)
+
+        self.questionnaire_preview_frame = ttk.Frame(preview_frame)
+        self.questionnaire_preview_frame.grid(row=0, column=0, sticky="nsew")
+        self.questionnaire_canvas_items = []
+
+    # =========================================================================
+    # ECG解析タブのコールバック
+    # =========================================================================
+
+    def _browse_ecg_input_folder(self):
+        folder_path = filedialog.askdirectory(title="解析対象のフォルダを選択してください")
+        if folder_path:
+            self.ecg_input_dir = folder_path
+            self.ecg_input_dir_var.set(folder_path)
+            self.ecg_status_var.set("Run Analysis を押して解析を開始してください。")
+
+    def _browse_ecg_output_folder(self):
+        folder_path = filedialog.askdirectory(title="出力先フォルダを選択してください")
+        if folder_path:
+            self.ecg_output_dir = folder_path
+            self.ecg_output_dir_var.set(folder_path)
+
+    def _collect_subject_files(self, input_dir):
+        """入力ディレクトリからファイルを収集"""
+        subject_files = defaultdict(dict)
+        for entry in os.listdir(input_dir):
+            full_path = os.path.join(input_dir, entry)
+            if not os.path.isfile(full_path) or not entry.lower().endswith('.csv'):
+                continue
+            match = FILENAME_PATTERN.match(entry)
+            if not match:
+                continue
+            subject_id = f"No{match.group('subject')}"
+            condition_raw = match.group('condition').lower()
+            condition = ANALYS_CONDITION_MAP.get(condition_raw)
+            if not condition:
+                continue
+            subject_files[subject_id][condition] = full_path
+        return subject_files
+
+    def _run_ecg_analysis(self):
+        """ECG/HRV解析を実行"""
+        if not self.ecg_input_dir or not os.path.isdir(self.ecg_input_dir):
+            messagebox.showwarning("フォルダ未選択", "まず解析対象のフォルダを選択してください。")
+            return
+
+        self.ecg_run_button.config(state=tk.DISABLED)
+        self.ecg_status_var.set("解析を実行中です。完了するまでお待ちください。")
+        self.update_idletasks()
+
+        def run_in_thread():
+            try:
+                subject_files = self._collect_subject_files(self.ecg_input_dir)
+                if not subject_files:
+                    self.after(0, lambda: messagebox.showwarning("解析不可", "指定フォルダに解析可能なファイルが見つかりません。"))
+                    self.after(0, lambda: self.ecg_status_var.set("解析可能なファイルが見つかりませんでした。"))
+                    self.after(0, lambda: self.ecg_run_button.config(state=tk.NORMAL))
+                    return
+
+                output_dir = self.ecg_output_dir if self.ecg_output_dir else os.path.join(os.path.dirname(self.ecg_input_dir), "result_batch")
+                os.makedirs(output_dir, exist_ok=True)
+
+                processed = 0
+                skipped = {}
+
+                for subject_id, files_by_condition in subject_files.items():
+                    missing = [cond for cond in ANALYS_CONDITION_ORDER if cond not in files_by_condition]
+                    if missing:
+                        skipped[subject_id] = missing
+                        print(f"{subject_id}: {', '.join(missing)} のファイルが不足しているためスキップします。")
+                        continue
+
+                    try:
+                        subject_dir = os.path.join(output_dir, subject_id)
+                        ordered_files = {condition: files_by_condition[condition] for condition in ANALYS_CONDITION_ORDER}
+                        print(f"\n=== {subject_id} の解析を開始します ===")
+                        analys_run_batch_analysis(ordered_files, subject_dir)
+
+                        combined_file = os.path.join(subject_dir, "Combined_HRV_Analysis.xlsx")
+                        if os.path.exists(combined_file):
+                            print(f"{subject_id}: 箱ひげ図を作成します")
+                            analys_generate_box_plots(combined_file, subject_dir)
+
+                        processed += 1
+                    except Exception as exc:
+                        skipped[subject_id] = [str(exc)]
+                        print(f"{subject_id}: 解析中にエラーが発生しました -> {exc}")
+
+                # 結果メッセージを構築
+                message_lines = [f"{processed}名の被験者を処理しました。"]
+                if skipped:
+                    detail_lines = []
+                    for subject_id, reasons in skipped.items():
+                        detail_lines.append(f"  - {subject_id}: {', '.join(reasons)}")
+                    message_lines.append("以下の被験者はスキップされました:")
+                    message_lines.extend(detail_lines)
+                message_lines.append(f"出力フォルダ: {output_dir}")
+
+                self.after(0, lambda: messagebox.showinfo("解析完了", "\n".join(message_lines)))
+                self.after(0, lambda: self.ecg_status_var.set("解析が完了しました。"))
+
+            except Exception as exc:
+                self.after(0, lambda: messagebox.showerror("解析エラー", f"解析中にエラーが発生しました。\n{exc}"))
+                self.after(0, lambda: self.ecg_status_var.set("解析に失敗しました。"))
+
+            finally:
+                self.after(0, lambda: self.ecg_run_button.config(state=tk.NORMAL))
+
+        threading.Thread(target=run_in_thread, daemon=True).start()
+
+    def _generate_ecg_boxplots(self):
+        """箱ひげ図を生成"""
+        output_dir = self.ecg_output_dir if self.ecg_output_dir else os.path.join(os.path.dirname(self.ecg_input_dir or "."), "result_batch")
+        combined_file = os.path.join(output_dir, "Combined_HRV_Analysis.xlsx")
+
+        if not os.path.exists(combined_file):
+            # 被験者ごとのファイルを探す
+            subject_dirs = [d for d in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir, d))]
+            if not subject_dirs:
+                messagebox.showwarning("ファイル未発見", "Combined_HRV_Analysis.xlsx が見つかりません。先に解析を実行してください。")
+                return
+
+            # 最初の被験者ディレクトリのファイルを使用
+            for subdir in subject_dirs:
+                combined_file = os.path.join(output_dir, subdir, "Combined_HRV_Analysis.xlsx")
+                if os.path.exists(combined_file):
+                    break
+            else:
+                messagebox.showwarning("ファイル未発見", "Combined_HRV_Analysis.xlsx が見つかりません。先に解析を実行してください。")
+                return
+
+        try:
+            saved_files = analys_generate_box_plots(combined_file, os.path.dirname(combined_file))
+            messagebox.showinfo("完了", f"箱ひげ図を作成しました:\n" + "\n".join(saved_files))
+            self.ecg_status_var.set("箱ひげ図を生成しました。")
+        except Exception as exc:
+            messagebox.showerror("エラー", f"箱ひげ図の作成に失敗しました。\n{exc}")
+
+    def _combine_ecg_subjects(self):
+        """全被験者のデータを統合"""
+        output_dir = self.ecg_output_dir if self.ecg_output_dir else os.path.join(os.path.dirname(self.ecg_input_dir or "."), "result_batch")
+
+        if not os.path.isdir(output_dir):
+            messagebox.showwarning("フォルダ未発見", "result_batch フォルダが見つかりません。先に解析を実行してください。")
+            return
+
+        self.ecg_combine_button.config(state=tk.DISABLED)
+        self.ecg_status_var.set("全被験者の統合を実行中です...")
+        self.update_idletasks()
+
+        def run_in_thread():
+            try:
+                subject_files = []
+                for entry in sorted(os.listdir(output_dir)):
+                    subject_dir = os.path.join(output_dir, entry)
+                    combined_path = os.path.join(subject_dir, "Combined_HRV_Analysis.xlsx")
+                    if os.path.isfile(combined_path):
+                        subject_files.append((entry, combined_path))
+
+                if not subject_files:
+                    self.after(0, lambda: messagebox.showwarning("統合不可", "統合対象の Combined_HRV_Analysis.xlsx が見つかりません。"))
+                    return
+
+                condition_priority = {cond: idx for idx, cond in enumerate(ANALYS_CONDITION_ORDER)}
+                frames = []
+                included_subjects = set()
+
+                for subject_id, file_path in subject_files:
+                    df = pd.read_excel(file_path)
+                    subject_included = False
+                    for condition in ANALYS_CONDITION_ORDER:
+                        lf_col = f"{condition}_LF/HF"
+                        rmssd_col = f"{condition}_RMSSD"
+                        if lf_col not in df.columns or rmssd_col not in df.columns:
+                            continue
+                        subset = df[['Time', lf_col, rmssd_col]].copy()
+                        subset.rename(columns={lf_col: 'LF/HF', rmssd_col: 'RMSSD'}, inplace=True)
+                        subset['Subject'] = subject_id
+                        subset['Condition'] = condition
+                        subset['ConditionOrder'] = condition_priority[condition]
+                        frames.append(subset[['Subject', 'Condition', 'ConditionOrder', 'Time', 'LF/HF', 'RMSSD']])
+                        subject_included = True
+                    if subject_included:
+                        included_subjects.add(subject_id)
+
+                if not frames:
+                    self.after(0, lambda: messagebox.showerror("統合エラー", "統合に使用できるデータ列が見つかりませんでした。"))
+                    return
+
+                combined_df = pd.concat(frames, ignore_index=True)
+                combined_df.sort_values(['ConditionOrder', 'Subject', 'Time'], inplace=True)
+                combined_df.drop(columns=['ConditionOrder'], inplace=True)
+
+                output_path = os.path.join(output_dir, "Combined_AllSubjects.xlsx")
+                combined_df.to_excel(output_path, index=False)
+
+                self.after(0, lambda: messagebox.showinfo("統合完了", f"全被験者データを統合しました。\n対象: {', '.join(sorted(included_subjects))}\n保存先: {output_path}"))
+                self.after(0, lambda: self.ecg_status_var.set("全被験者統合が完了しました。"))
+
+            except Exception as exc:
+                self.after(0, lambda: messagebox.showerror("統合エラー", f"統合処理中にエラーが発生しました。\n{exc}"))
+                self.after(0, lambda: self.ecg_status_var.set("統合が失敗しました。"))
+
+            finally:
+                self.after(0, lambda: self.ecg_combine_button.config(state=tk.NORMAL))
+
+        threading.Thread(target=run_in_thread, daemon=True).start()
+
+    # =========================================================================
+    # アンケート解析タブのコールバック
+    # =========================================================================
+
+    def _browse_questionnaire_file(self):
+        file_path = filedialog.askopenfilename(
+            title="Excelファイルを選択",
+            filetypes=[("Excel Files", "*.xlsx"), ("All Files", "*.*")],
+        )
+        if file_path:
+            self.questionnaire_file_var.set(file_path)
+            self.questionnaire_status_var.set(f"{os.path.basename(file_path)} を選択しました。")
+
+    def _clear_questionnaire_canvas(self):
+        for canvas in self.questionnaire_canvas_items:
+            try:
+                canvas.get_tk_widget().destroy()
+            except Exception:
+                pass
+        self.questionnaire_canvas_items.clear()
+
+    def _display_questionnaire_figures(self, figures):
+        self._clear_questionnaire_canvas()
+        for idx, fig in enumerate(figures):
+            canvas = FigureCanvasTkAgg(fig, master=self.questionnaire_preview_frame)
+            canvas.draw()
+            widget = canvas.get_tk_widget()
+            widget.grid(row=idx, column=0, sticky="nsew", pady=10)
+            self.questionnaire_canvas_items.append(canvas)
+        for row in range(len(figures)):
+            self.questionnaire_preview_frame.rowconfigure(row, weight=1)
+        self.questionnaire_preview_frame.columnconfigure(0, weight=1)
+
+    def _run_questionnaire_analysis(self):
+        """アンケート解析を実行"""
+        file_path = self.questionnaire_file_var.get()
+        if not file_path:
+            messagebox.showwarning("ファイル未選択", "Excelファイルを選択してください。")
+            return
+
+        self.questionnaire_run_button.config(state=tk.DISABLED)
+        self.questionnaire_status_var.set("箱ひげ図を作成中...")
+        self.update_idletasks()
+
+        def run_in_thread():
+            try:
+                result = analys_q_generate_plots(file_path)
+                self.after(0, lambda: self._display_questionnaire_figures(result["figures"]))
+                self.after(0, lambda: self.questionnaire_status_var.set(
+                    f"サマリー: {result['summary_path'].name} / "
+                    f"設問別: {len(result['per_question_paths'])}枚を question_boxplots フォルダに保存"
+                ))
+                self.after(0, lambda: messagebox.showinfo(
+                    "完了",
+                    "箱ひげ図を作成し、GUIにプレビューしました。\n"
+                    "PNGファイルもExcelと同じフォルダに保存しました。",
+                ))
+            except Exception as exc:
+                self.after(0, lambda: messagebox.showerror("エラー", f"箱ひげ図の作成に失敗しました。\n{exc}"))
+                self.after(0, lambda: self.questionnaire_status_var.set("箱ひげ図の作成に失敗しました。"))
+            finally:
+                self.after(0, lambda: self.questionnaire_run_button.config(state=tk.NORMAL))
+
+        threading.Thread(target=run_in_thread, daemon=True).start()
 
     def create_parameter_row(self, parent: ttk.Frame, param_name: str, label_text: str,
                              tk_var_attr: str, value_label_attr: str, row_index: int):
