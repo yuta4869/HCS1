@@ -32,6 +32,11 @@ class HeartRateMonitor:
         self.is_measuring_baseline: bool = False
         self.subject_id: Optional[str] = None
 
+        # 話し始めトリガー用HRバッファ（タイムスタンプ付き）
+        # 前後5秒（合計10秒）のバッファを保持
+        self.hr_buffer: List[Dict[str, Any]] = []
+        self.hr_buffer_duration_seconds: float = 10.0  # バッファ保持時間（秒）
+
     async def start_monitoring_async(self) -> bool:
         """Asynchronous method to connect and start monitoring."""
         try:
@@ -99,6 +104,42 @@ class HeartRateMonitor:
         """Gets the current heart rate."""
         with self.hr_lock:
             return self.current_hr
+
+    def get_buffered_hr(self, target_time: Optional[datetime.datetime] = None,
+                        window_seconds: float = 5.0) -> Optional[int]:
+        """
+        指定した時刻を中心に前後window_seconds秒（合計2*window_seconds秒）の
+        心拍数データから中央値を計算して返す。
+
+        Args:
+            target_time: 中心となる時刻。Noneの場合は現在時刻を使用。
+            window_seconds: 前後の秒数。デフォルトは5秒（合計10秒）。
+
+        Returns:
+            バッファ内のデータから計算した中央値心拍数。
+            データが不足している場合はNone。
+        """
+        with self.hr_lock:
+            if not self.hr_buffer:
+                return None
+
+            if target_time is None:
+                target_time = datetime.datetime.now()
+
+            # 前後window_seconds秒の範囲のデータを抽出
+            window_start = target_time - datetime.timedelta(seconds=window_seconds)
+            window_end = target_time + datetime.timedelta(seconds=window_seconds)
+
+            hr_values = [
+                entry['hr'] for entry in self.hr_buffer
+                if window_start <= entry['timestamp'] <= window_end
+            ]
+
+            if not hr_values:
+                return None
+
+            # 中央値を計算
+            return int(statistics.median(hr_values))
 
     def get_reference_hr(self) -> int:
         """Gets the reference heart rate."""
@@ -171,6 +212,14 @@ class HeartRateMonitor:
                 self.last_timestamp = timestamp
                 if self.is_measuring_baseline:
                     self.baseline_hr_samples.append(hr_value)
+
+                # HRバッファに追加（古いデータを削除）
+                self.hr_buffer.append({'timestamp': timestamp, 'hr': hr_value})
+                cutoff_time = timestamp - datetime.timedelta(seconds=self.hr_buffer_duration_seconds)
+                self.hr_buffer = [
+                    entry for entry in self.hr_buffer
+                    if entry['timestamp'] > cutoff_time
+                ]
 
             self.log_hr_with_prosody() # Log with current prosody
             self.log_verity_hr_to_session(timestamp, hr_value) # Log to session CSV
