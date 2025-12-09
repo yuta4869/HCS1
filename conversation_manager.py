@@ -238,16 +238,58 @@ class ConversationManager:
 
     def generate_reply(self, user_text: str, system_prompt: str, wav_filename: Optional[str] = None) -> str:
         """
-        利用中の大規模言語モデルとの結合は環境ごとに異なるはずなので、
-        ここでは「単純な固定応答＋エコー」にしておく。
+        ローカルLLMまたはOpenAI APIを使用して応答を生成する。
+        config.LLM_BACKEND の設定に基づいてバックエンドを選択。
         """
         if system_prompt:
             self.add_message("system", system_prompt)
 
         self.add_message("user", user_text, wav_filename=wav_filename)
-        reply = f"あなたは「{user_text}」と言いました。今は心拍数連動の音声と動作確認用の簡易応答です。"
+
+        # LLMバックエンドに応じて応答を生成
+        if config.LLM_BACKEND == "local":
+            reply = self._generate_local_llm_reply()
+        elif config.LLM_BACKEND == "openai":
+            reply = self._generate_openai_reply()
+        else:
+            reply = f"エラー: 不明なLLMバックエンド '{config.LLM_BACKEND}'"
+
         self.add_message("assistant", reply)
         return reply
+
+    def _generate_local_llm_reply(self) -> str:
+        """ローカルLLM (llama-cpp-python) を使用して応答を生成"""
+        try:
+            from local_llm import get_local_llm
+            llm = get_local_llm()
+            messages = self.get_messages()
+            reply = llm.generate(messages)
+            return reply
+        except ImportError as e:
+            print(f"ローカルLLMのインポートエラー: {e}")
+            return "申し訳ありません、ローカルLLMの読み込みに失敗しました。"
+        except Exception as e:
+            print(f"ローカルLLM生成エラー: {e}")
+            return f"申し訳ありません、応答の生成中にエラーが発生しました: {str(e)}"
+
+    def _generate_openai_reply(self) -> str:
+        """OpenAI APIを使用して応答を生成"""
+        try:
+            import openai
+            client = openai.OpenAI()
+            messages = self.get_messages()
+            response = client.chat.completions.create(
+                model=config.OPENAI_MODEL,
+                messages=messages,
+                max_tokens=config.OPENAI_MAX_TOKENS,
+                temperature=config.OPENAI_TEMPERATURE,
+                timeout=config.OPENAI_TIMEOUT,
+            )
+            reply = response.choices[0].message.content
+            return reply if reply else "応答を取得できませんでした。"
+        except Exception as e:
+            print(f"OpenAI API エラー: {e}")
+            return f"申し訳ありません、OpenAI APIでエラーが発生しました: {str(e)}"
 
     def conversation_loop(self) -> None:
         """

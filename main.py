@@ -64,12 +64,14 @@ def main():
                              f"ログディレクトリの作成に失敗しました: {config.LOG_DIR}\nエラー: {e_log_dir}", parent=root)
         sys.exit(1)
 
-    # 2. Check for OpenAI API Key
-    if not os.getenv("OPENAI_API_KEY"):
+    # 2. Check for OpenAI API Key (only when using OpenAI backend)
+    if config.LLM_BACKEND == "openai" and not os.getenv("OPENAI_API_KEY"):
         warning_msg = ("環境変数 'OPENAI_API_KEY' が設定されていません。\n"
                        "AI応答生成機能は利用できません。")
         print(f"WARNING: {warning_msg.replace(chr(10), ' ')}")
         messagebox.showwarning("OpenAI APIキー警告", warning_msg, parent=root)
+    elif config.LLM_BACKEND == "local":
+        print(f"LLMバックエンド: ローカルLLM (モデル: {config.LOCAL_LLM_MODEL_PATH})")
 
     # 3. Load faster-whisper Model
     faster_whisper_model_instance: WhisperModel

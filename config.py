@@ -85,11 +85,27 @@ INTERACTION_EVENT_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "interaction_events_
 # --- API and Service URLs ---
 VOICEVOX_URL = "http://localhost:50021"
 
-# --- OpenAI API Settings ---
+# --- LLM Settings ---
+# "local" または "openai" を選択
+LLM_BACKEND = "local"  # "local" = ローカルLLM (llama.cpp), "openai" = OpenAI API
+
+# --- OpenAI API Settings (LLM_BACKEND = "openai" のとき使用) ---
 OPENAI_MODEL = "gpt-4o-mini"
 OPENAI_MAX_TOKENS = 200
 OPENAI_TEMPERATURE = 0.7
 OPENAI_TIMEOUT = 25
+
+# --- Local LLM Settings (LLM_BACKEND = "local" のとき使用) ---
+# llama-cpp-python を使用
+# モデルファイルのパス (GGUFフォーマット)
+# Japanese StableLM Instruct Gamma 7B: https://huggingface.co/TheBloke/japanese-stablelm-instruct-gamma-7B-GGUF
+LOCAL_LLM_MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", "japanese-stablelm-instruct-gamma-7b.Q4_K_M.gguf")
+LOCAL_LLM_N_CTX = 2048        # コンテキスト長
+LOCAL_LLM_N_GPU_LAYERS = -1   # GPUに載せるレイヤー数 (-1 = 全て, 0 = CPU only)
+LOCAL_LLM_MAX_TOKENS = 200
+LOCAL_LLM_TEMPERATURE = 0.7
+LOCAL_LLM_TOP_P = 0.9
+LOCAL_LLM_REPEAT_PENALTY = 1.2
 
 # --- Polar Device Settings ---
 POLAR_VERITY_SENSE_NAME = "Polar Sense"
