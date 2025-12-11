@@ -23,3 +23,5 @@ test_audio/
 .DS_Store
 
 logs/
+HCS1.git/
+.DS_Store
