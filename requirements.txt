@@ -8,3 +8,8 @@ faster-whisper
 openai
 soundfile
 requests
+scipy
+seaborn
+pandas
+openpyxl
+japanize-matplotlib
