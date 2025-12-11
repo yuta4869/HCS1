@@ -32,14 +32,125 @@ except Exception as e:
 # --- End of Bootstrap ---
 
 import queue
+import subprocess
+import time
 import tkinter as tk # For messagebox, though it's often part of Application
 from tkinter import messagebox
 import torch # For checking CUDA availability for faster-whisper
 from faster_whisper import WhisperModel
 import openai
+import requests
+import atexit
+import signal
 
 # Import modules from the project
 import config
+
+# グローバル変数: LLMサーバープロセス
+_llm_server_process = None
+
+def start_local_llm_server():
+    """ローカルLLMサーバー(llama-cpp-python)を起動する"""
+    global _llm_server_process
+
+    if not config.USE_LOCAL_LLM or not config.LOCAL_LLM_AUTO_START:
+        return True
+
+    # サーバーが既に起動しているかチェック (/v1/models エンドポイントを使用)
+    try:
+        response = requests.get(f"http://{config.LOCAL_LLM_HOST}:{config.LOCAL_LLM_PORT}/v1/models", timeout=2)
+        if response.status_code == 200:
+            print("ローカルLLMサーバーは既に起動しています。")
+            return True
+    except requests.exceptions.RequestException:
+        pass  # サーバーが起動していない場合
+
+    # モデルファイルの存在確認
+    if not os.path.exists(config.LOCAL_LLM_MODEL_PATH):
+        print(f"エラー: LLMモデルファイルが見つかりません: {config.LOCAL_LLM_MODEL_PATH}")
+        return False
+
+    # llama-cpp-pythonのサーバーを起動
+    # python -m llama_cpp.server --model <path> --host <host> --port <port>
+    cmd = [
+        sys.executable,  # 現在のPython実行ファイル
+        "-m", "llama_cpp.server",
+        "--model", config.LOCAL_LLM_MODEL_PATH,
+        "--host", config.LOCAL_LLM_HOST,
+        "--port", str(config.LOCAL_LLM_PORT),
+        "--n_ctx", str(config.LOCAL_LLM_CONTEXT_SIZE),
+        "--n_gpu_layers", str(config.LOCAL_LLM_GPU_LAYERS),
+    ]
+
+    print(f"ローカルLLMサーバーを起動中...")
+    print(f"  モデル: {config.LOCAL_LLM_MODEL_PATH}")
+    print(f"  ホスト: {config.LOCAL_LLM_HOST}:{config.LOCAL_LLM_PORT}")
+
+    try:
+        # サブプロセスとしてサーバーを起動（バックグラウンド）
+        # 注: stdout/stderrをDEVNULLにしないとバッファリングでサーバーがブロックする
+        _llm_server_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            preexec_fn=os.setsid if sys.platform != 'win32' else None
+        )
+
+        # サーバーが起動するまで待機 (/v1/models エンドポイントを使用)
+        print("  サーバーの起動を待機中...")
+        max_wait = 30  # 通常は数秒で起動
+        for i in range(max_wait):
+            try:
+                response = requests.get(f"http://{config.LOCAL_LLM_HOST}:{config.LOCAL_LLM_PORT}/v1/models", timeout=2)
+                if response.status_code == 200:
+                    print(f"ローカルLLMサーバーが起動しました (http://{config.LOCAL_LLM_HOST}:{config.LOCAL_LLM_PORT})")
+                    return True
+            except requests.exceptions.RequestException:
+                pass
+
+            # プロセスが終了していないかチェック
+            if _llm_server_process.poll() is not None:
+                print(f"エラー: LLMサーバーが予期せず終了しました (exit code: {_llm_server_process.returncode})")
+                return False
+
+            time.sleep(1)
+            if (i + 1) % 10 == 0:
+                print(f"  まだ待機中... ({i + 1}秒)")
+
+        print("エラー: LLMサーバーの起動がタイムアウトしました")
+        stop_local_llm_server()
+        return False
+
+    except Exception as e:
+        print(f"エラー: LLMサーバーの起動に失敗しました: {e}")
+        return False
+
+def stop_local_llm_server():
+    """ローカルLLMサーバーを停止する"""
+    global _llm_server_process
+
+    if _llm_server_process is not None:
+        print("ローカルLLMサーバーを停止中...")
+        try:
+            if sys.platform != 'win32':
+                # プロセスグループ全体を終了
+                os.killpg(os.getpgid(_llm_server_process.pid), signal.SIGTERM)
+            else:
+                _llm_server_process.terminate()
+
+            _llm_server_process.wait(timeout=5)
+            print("ローカルLLMサーバーを停止しました。")
+        except Exception as e:
+            print(f"LLMサーバー停止中にエラー: {e}")
+            try:
+                _llm_server_process.kill()
+            except:
+                pass
+        finally:
+            _llm_server_process = None
+
+# アプリケーション終了時にLLMサーバーも停止
+atexit.register(stop_local_llm_server)
 from logger_utils import initialize_log_directory # log_queue is created here
 # LoggingThread is initialized within Application
 from polar_monitor import HeartRateMonitor, H10Monitor
@@ -64,12 +175,22 @@ def main():
                              f"ログディレクトリの作成に失敗しました: {config.LOG_DIR}\nエラー: {e_log_dir}", parent=root)
         sys.exit(1)
 
-    # 2. Check for OpenAI API Key
-    if not os.getenv("OPENAI_API_KEY"):
-        warning_msg = ("環境変数 'OPENAI_API_KEY' が設定されていません。\n"
-                       "AI応答生成機能は利用できません。")
-        print(f"WARNING: {warning_msg.replace(chr(10), ' ')}")
-        messagebox.showwarning("OpenAI APIキー警告", warning_msg, parent=root)
+    # 2. Start Local LLM Server or Check OpenAI API Key
+    if config.USE_LOCAL_LLM:
+        print("ローカルLLMモードが有効です。")
+        if config.LOCAL_LLM_AUTO_START:
+            if not start_local_llm_server():
+                messagebox.showerror("LLMサーバーエラー",
+                                   "ローカルLLMサーバーの起動に失敗しました。\n"
+                                   f"モデルパス: {config.LOCAL_LLM_MODEL_PATH}", parent=root)
+                sys.exit(1)
+    else:
+        # OpenAI APIキーのチェック
+        if not os.getenv("OPENAI_API_KEY"):
+            warning_msg = ("環境変数 'OPENAI_API_KEY' が設定されていません。\n"
+                           "AI応答生成機能は利用できません。")
+            print(f"WARNING: {warning_msg.replace(chr(10), ' ')}")
+            messagebox.showwarning("OpenAI APIキー警告", warning_msg, parent=root)
 
     # 3. Load faster-whisper Model
     faster_whisper_model_instance: WhisperModel
