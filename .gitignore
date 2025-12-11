@@ -22,4 +22,5 @@ test_audio/
 # macOS specific
 .DS_Store
 
-logs/
+logs/*.wav
+*.mp4
