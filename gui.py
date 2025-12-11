@@ -601,6 +601,10 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         self.subject_id_var = tk.StringVar(value="")
         self.current_subject_id: Optional[str] = None
 
+        # LLM設定用変数
+        self.use_local_llm_var = tk.BooleanVar(value=config.USE_LOCAL_LLM)
+        self.openai_api_key_var = tk.StringVar(value=os.getenv("OPENAI_API_KEY", ""))
+
         # ビデオ録画機能の初期化
         # 会話システム優先: 2つ目のマイクがある場合のみ映像に音声を付ける
         secondary_mic = get_secondary_mic_device(self.audio.input_device_index)
@@ -743,10 +747,10 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         # --- Session Information Frame ---
         session_container = ttk.Frame(main_frame)
-        session_container.grid(row=row_idx, column=0, columnspan=5, sticky="w", padx=5, pady=5)
+        session_container.grid(row=row_idx, column=0, columnspan=5, sticky="ew", padx=5, pady=5)
 
         session_frame = ttk.LabelFrame(session_container, text="セッション情報", padding="10")
-        session_frame.pack(anchor="w")
+        session_frame.pack(side=tk.LEFT, anchor="nw")
         session_frame.columnconfigure(1, weight=0)
 
         ttk.Label(session_frame, text="被験者番号:").grid(row=0, column=0, sticky=tk.W, pady=2, padx=5)
@@ -757,6 +761,45 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         self.subject_hint_label.grid(row=0, column=3, sticky=tk.W, pady=2, padx=(10,5))
         self.subject_id_var.trace_add("write", self._on_subject_id_change)
         self._update_subject_id_hint()
+
+        # --- LLM Settings Frame ---
+        llm_frame = ttk.LabelFrame(session_container, text="LLM設定", padding="10")
+        llm_frame.pack(side=tk.LEFT, anchor="nw", padx=(10, 0))
+
+        # LLM選択ラジオボタン
+        llm_select_frame = ttk.Frame(llm_frame)
+        llm_select_frame.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=2)
+
+        ttk.Radiobutton(
+            llm_select_frame, text="ローカルLLM",
+            variable=self.use_local_llm_var, value=True,
+            command=self._on_llm_selection_change
+        ).pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Radiobutton(
+            llm_select_frame, text="OpenAI API",
+            variable=self.use_local_llm_var, value=False,
+            command=self._on_llm_selection_change
+        ).pack(side=tk.LEFT)
+
+        # OpenAI APIキー入力欄
+        ttk.Label(llm_frame, text="OpenAI APIキー:").grid(row=1, column=0, sticky=tk.W, pady=2, padx=5)
+        self.api_key_entry = ttk.Entry(llm_frame, textvariable=self.openai_api_key_var, width=35, show="*")
+        self.api_key_entry.grid(row=1, column=1, sticky=tk.W, pady=2, padx=5)
+
+        # APIキー表示/非表示ボタン
+        self.show_api_key_var = tk.BooleanVar(value=False)
+        self.toggle_key_btn = ttk.Button(llm_frame, text="表示", width=5, command=self._toggle_api_key_visibility)
+        self.toggle_key_btn.grid(row=1, column=2, sticky=tk.W, pady=2, padx=2)
+
+        # LLMステータス表示
+        self.llm_status_label = ttk.Label(llm_frame, text="", foreground="green", style='Status.TLabel')
+        self.llm_status_label.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=2, padx=5)
+        self._update_llm_status()
+
+        # APIキー変更時に自動更新
+        self.openai_api_key_var.trace_add("write", self._on_api_key_change)
+
         row_idx += 1
 
         # --- Prosody Parameters Frame ---
@@ -1294,6 +1337,86 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         subject_value = sanitized if sanitized else None
         self.conversation_manager.set_subject_id(subject_value)
         self.hr_monitor.set_subject_id(subject_value)
+
+    def _on_llm_selection_change(self) -> None:
+        """LLM選択が変更された時の処理"""
+        use_local = self.use_local_llm_var.get()
+        config.USE_LOCAL_LLM = use_local
+        self._reinitialize_llm_client()
+        self._update_llm_status()
+
+    def _on_api_key_change(self, *_) -> None:
+        """APIキーが変更された時の処理"""
+        # OpenAI API選択時のみクライアントを再初期化
+        if not self.use_local_llm_var.get():
+            self._reinitialize_llm_client()
+        self._update_llm_status()
+
+    def _toggle_api_key_visibility(self) -> None:
+        """APIキーの表示/非表示を切り替える"""
+        if self.show_api_key_var.get():
+            self.api_key_entry.config(show="*")
+            self.toggle_key_btn.config(text="表示")
+            self.show_api_key_var.set(False)
+        else:
+            self.api_key_entry.config(show="")
+            self.toggle_key_btn.config(text="隠す")
+            self.show_api_key_var.set(True)
+
+    def _reinitialize_llm_client(self) -> None:
+        """LLMクライアントを再初期化する"""
+        use_local = self.use_local_llm_var.get()
+
+        if use_local:
+            self.openai_client = openai.OpenAI(
+                base_url=config.LOCAL_LLM_BASE_URL,
+                api_key=config.LOCAL_LLM_API_KEY
+            )
+            print(f"ローカルLLMに切り替え: {config.LOCAL_LLM_BASE_URL}")
+            self._log_to_console(f"LLM: ローカルLLM ({config.LOCAL_LLM_BASE_URL})")
+        else:
+            api_key = self.openai_api_key_var.get().strip()
+            if api_key:
+                os.environ["OPENAI_API_KEY"] = api_key
+                self.openai_client = openai.OpenAI(api_key=api_key)
+                print("OpenAI APIに切り替え (カスタムキー使用)")
+                self._log_to_console("LLM: OpenAI API")
+            else:
+                env_key = os.getenv("OPENAI_API_KEY")
+                if env_key:
+                    self.openai_client = openai.OpenAI()
+                    print("OpenAI APIに切り替え (環境変数キー使用)")
+                    self._log_to_console("LLM: OpenAI API (環境変数)")
+                else:
+                    self.openai_client = openai.OpenAI(api_key="dummy")
+                    print("警告: OpenAI APIキーが設定されていません")
+                    self._log_to_console("警告: OpenAI APIキーが未設定です")
+
+    def _update_llm_status(self) -> None:
+        """LLMステータス表示を更新"""
+        if not hasattr(self, 'llm_status_label'):
+            return
+
+        use_local = self.use_local_llm_var.get()
+
+        if use_local:
+            self.llm_status_label.config(
+                text=f"ローカルLLM ({config.LOCAL_LLM_MODEL})",
+                foreground="green"
+            )
+        else:
+            api_key = self.openai_api_key_var.get().strip() or os.getenv("OPENAI_API_KEY", "")
+            if api_key:
+                masked_key = api_key[:8] + "..." if len(api_key) > 8 else "***"
+                self.llm_status_label.config(
+                    text=f"OpenAI API ({config.OPENAI_MODEL}) キー: {masked_key}",
+                    foreground="green"
+                )
+            else:
+                self.llm_status_label.config(
+                    text="OpenAI API (APIキー未設定)",
+                    foreground="red"
+                )
 
     def _check_interim_transcription_queue(self):
         """Periodically check the interim transcription queue and update the UI."""
