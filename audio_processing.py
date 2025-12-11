@@ -18,6 +18,7 @@ import soundfile as sf
 import tkinter as tk
 
 from faster_whisper import WhisperModel
+from hrf2_controller import HRF2Controller, HRF2Config
 
 import config
 
@@ -74,6 +75,11 @@ class ProsodySettings:
         # 既定は抑揚
         self.hfb_target_param: str = "intonation"
         self.hfb_target_param_var: Optional[tk.StringVar] = None
+
+        # --- HRF2: PID制御による心拍数追従モード ---
+        self.hrf2_controller = HRF2Controller()
+        self.hrf2_enabled: bool = False
+        self.hrf2_enabled_var: Optional[tk.BooleanVar] = None
 
     # ------------------------------------------------------------------
     # 基本パラメータ操作
@@ -201,10 +207,13 @@ class ProsodySettings:
         Returns:
             "Sin" - 正弦波モード
             "HRF" - 心拍数フィードバックモード（直接調整）
+            "HRF2" - PID制御による心拍数追従モード
             "Fixed" - 抑揚固定モード（どちらも無効）
         """
         if self.sinusoidal_hfb_enabled:
             return "Sin"
+        elif self.hrf2_enabled:
+            return "HRF2"
         elif self.hfb_enabled:
             return "HRF"
         else:
@@ -214,15 +223,52 @@ class ProsodySettings:
         """
         現在のモードを表示用の文字列で返す。
         Returns:
-            "正弦波モード (Sin)" / "心拍フィードバック (HRF)" / "抑揚固定 (Fixed)"
+            "正弦波モード (Sin)" / "心拍フィードバック (HRF)" / "心拍追従 (HRF2)" / "抑揚固定 (Fixed)"
         """
         mode = self.get_current_mode()
         if mode == "Sin":
             return "正弦波モード (Sin)"
+        elif mode == "HRF2":
+            return "心拍追従 (HRF2)"
         elif mode == "HRF":
             return "心拍フィードバック (HRF)"
         else:
             return "抑揚固定 (Fixed)"
+
+    # ------------------------------------------------------------------
+    # HRF2: PID制御による心拍数追従
+    # ------------------------------------------------------------------
+    def enable_hrf2(self, enable: bool) -> None:
+        """HRF2モードの有効/無効を設定"""
+        self.hrf2_enabled = enable
+        self.hrf2_controller.enabled = enable
+        print(f"HRF2 (PID Control) set to {'enabled' if enable else 'disabled'}.")
+        if self.hrf2_enabled_var is not None:
+            try:
+                self.hrf2_enabled_var.set(enable)
+            except tk.TclError:
+                pass
+        if enable:
+            self.hrf2_controller.reset()
+
+    def is_hrf2_enabled(self) -> bool:
+        return self.hrf2_enabled
+
+    def get_hrf2_output(self, current_hr: float) -> Tuple[float, dict]:
+        """HRF2コントローラーから抑揚レベルを取得"""
+        return self.hrf2_controller.update(current_hr)
+
+    def set_hrf2_target_hr(self, target_hr: float) -> None:
+        """HRF2の目標心拍数を設定"""
+        self.hrf2_controller.target_hr = target_hr
+
+    def get_hrf2_target_hr(self) -> float:
+        """HRF2の目標心拍数を取得"""
+        return self.hrf2_controller.target_hr
+
+    def set_hrf2_pid_gains(self, kp: float, ki: float, kd: float) -> None:
+        """HRF2のPIDゲインを設定"""
+        self.hrf2_controller.set_pid_gains(kp, ki, kd)
 
 
 class VoicevoxManager:
@@ -697,6 +743,31 @@ class AudioProcessor:
                 applied_hfb_param_value = applied_intonation_scale
                 target_param_for_hfb = "intonation"
                 print(f"HFB (Sinusoidal) Intonation set to {applied_intonation_scale:.3f}")
+
+            # HRF2: PID制御による心拍数追従モード
+            elif hasattr(self.prosody, "is_hrf2_enabled") and self.prosody.is_hrf2_enabled():
+                hfb_type_for_log = "HRF2"
+                target_param_for_hfb = "intonation"
+
+                if self.hr_monitor is None or not getattr(self.hr_monitor, "is_connected", False):
+                    print("HRF2 is enabled but heart rate monitor is not connected.")
+                    applied_hfb_param_value = self.prosody.get_parameter("intonation")
+                else:
+                    current_hr = self.hr_monitor.get_current_hr()
+                    if current_hr > 0:
+                        hrf2_output, debug_info = self.prosody.get_hrf2_output(current_hr)
+                        applied_hfb_param_value = hrf2_output
+                        applied_intonation_scale = hrf2_output
+                        self.prosody.set_parameter("intonation", hrf2_output)
+
+                        print(
+                            f"HRF2 (PID): Target={debug_info.get('target_hr', 0):.0f} BPM, "
+                            f"Current={current_hr} BPM, Error={debug_info.get('error', 0):.1f}, "
+                            f"Output={hrf2_output:.3f}"
+                        )
+                    else:
+                        print("HRF2: No valid HR data available.")
+                        applied_hfb_param_value = self.prosody.get_parameter("intonation")
 
             # 直接 HR に応じて変化させるモード
             elif hasattr(self.prosody, "is_hfb_enabled") and self.prosody.is_hfb_enabled():

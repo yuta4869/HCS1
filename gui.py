@@ -864,21 +864,67 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         self.hfb_target_param_combo.bind("<<ComboboxSelected>>", self.on_hfb_target_param_changed)
         row_idx += 1
         
-        # --- Speaker Selection Frame ---
-        speaker_frame = ttk.LabelFrame(main_frame, text="話者選択 (VOICEVOX)", padding="10")
-        speaker_frame.grid(row=row_idx, column=0, columnspan=5, sticky="ew", padx=5, pady=5)
-        speaker_frame.columnconfigure(0, weight=1)
+        # --- Speaker Selection and HRF2 Frame (横に並べる) ---
+        speaker_hrf2_container = ttk.Frame(main_frame)
+        speaker_hrf2_container.grid(row=row_idx, column=0, columnspan=5, sticky="ew", padx=5, pady=5)
+
+        # 話者選択フレーム（左側）
+        speaker_frame = ttk.LabelFrame(speaker_hrf2_container, text="話者選択 (VOICEVOX)", padding="10")
+        speaker_frame.pack(side=tk.LEFT, fill=tk.X, expand=False, padx=(0, 5))
 
         self.speaker_var = tk.StringVar()
-        self.speaker_combo = ttk.Combobox(speaker_frame, textvariable=self.speaker_var, state="readonly", width=45)
-        self.speaker_combo.grid(row=0, column=0, sticky="ew", pady=5, padx=5)
+        self.speaker_combo = ttk.Combobox(speaker_frame, textvariable=self.speaker_var, state="readonly", width=30)
+        self.speaker_combo.grid(row=0, column=0, sticky="w", pady=5, padx=5)
         self.speaker_combo.bind("<<ComboboxSelected>>", self.on_speaker_selected)
 
         self.speaker_status = ttk.Label(speaker_frame, text="話者: 未選択", foreground="orange", style='Status.TLabel')
-        self.speaker_status.grid(row=0, column=1, sticky=tk.W, pady=5, padx=10)
+        self.speaker_status.grid(row=0, column=1, sticky=tk.W, pady=5, padx=5)
         test_button = ttk.Button(speaker_frame, text="テスト発話", command=self.test_speech)
         test_button.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=5, padx=5)
         self.populate_speaker_list()
+
+        # HRF2設定フレーム（右側）
+        hrf2_frame = ttk.LabelFrame(speaker_hrf2_container, text="HRF2 (心拍追従モード)", padding="10")
+        hrf2_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+
+        # HRF2有効/無効チェックボックス
+        self.prosody.hrf2_enabled_var = tk.BooleanVar(value=self.prosody.is_hrf2_enabled())
+        hrf2_checkbox = ttk.Checkbutton(
+            hrf2_frame, text="HRF2モード有効",
+            variable=self.prosody.hrf2_enabled_var, command=self.toggle_hrf2
+        )
+        hrf2_checkbox.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=2, padx=5)
+
+        # 目標心拍数
+        ttk.Label(hrf2_frame, text="目標BPM:").grid(row=1, column=0, sticky=tk.W, pady=2, padx=5)
+        self.hrf2_target_hr_var = tk.DoubleVar(value=self.prosody.get_hrf2_target_hr())
+        hrf2_target_spinbox = ttk.Spinbox(
+            hrf2_frame, from_=40, to=180, width=6,
+            textvariable=self.hrf2_target_hr_var,
+            command=self._on_hrf2_target_change
+        )
+        hrf2_target_spinbox.grid(row=1, column=1, sticky=tk.W, pady=2, padx=5)
+        hrf2_target_spinbox.bind("<Return>", lambda e: self._on_hrf2_target_change())
+
+        # PIDゲイン設定
+        ttk.Label(hrf2_frame, text="Kp:").grid(row=2, column=0, sticky=tk.W, pady=2, padx=5)
+        self.hrf2_kp_var = tk.DoubleVar(value=0.02)
+        ttk.Entry(hrf2_frame, textvariable=self.hrf2_kp_var, width=6).grid(row=2, column=1, sticky=tk.W, pady=2, padx=5)
+
+        ttk.Label(hrf2_frame, text="Ki:").grid(row=2, column=2, sticky=tk.W, pady=2, padx=5)
+        self.hrf2_ki_var = tk.DoubleVar(value=0.005)
+        ttk.Entry(hrf2_frame, textvariable=self.hrf2_ki_var, width=6).grid(row=2, column=3, sticky=tk.W, pady=2, padx=5)
+
+        ttk.Label(hrf2_frame, text="Kd:").grid(row=2, column=4, sticky=tk.W, pady=2, padx=5)
+        self.hrf2_kd_var = tk.DoubleVar(value=0.01)
+        ttk.Entry(hrf2_frame, textvariable=self.hrf2_kd_var, width=6).grid(row=2, column=5, sticky=tk.W, pady=2, padx=5)
+
+        ttk.Button(hrf2_frame, text="PID適用", command=self._apply_hrf2_pid_gains).grid(row=2, column=6, sticky=tk.W, pady=2, padx=5)
+
+        # HRF2ステータス表示
+        self.hrf2_status_label = ttk.Label(hrf2_frame, text="HRF2: 無効", foreground="gray", style='Status.TLabel')
+        self.hrf2_status_label.grid(row=3, column=0, columnspan=7, sticky=tk.W, pady=2, padx=5)
+
         row_idx += 1
 
         # --- AI Assistant Settings Frame ---
@@ -2264,6 +2310,77 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         except Exception as e_toggle_shfb:
             print(f"Sinusoidal HFB toggle error: {e_toggle_shfb}")
             self.set_status("抑揚正弦波モード切り替えエラー", "red")
+
+    def toggle_hrf2(self):
+        """HRF2モードの切り替え"""
+        try:
+            if not hasattr(self.prosody, 'hrf2_enabled_var') or self.prosody.hrf2_enabled_var is None:
+                return
+            new_state = self.prosody.hrf2_enabled_var.get()
+
+            self.prosody.enable_hrf2(new_state)
+            self.set_status(f"HRF2モード（心拍追従）を「{'有効' if new_state else '無効'}」にしました", "blue")
+
+            if new_state:
+                # 他のモードを無効化
+                if self.prosody.is_hfb_enabled():
+                    self.prosody.enable_hfb(False)
+                    if self.prosody.hfb_enabled_var:
+                        self.prosody.hfb_enabled_var.set(False)
+                    print("通常HFBモードは無効化されました。")
+                if self.prosody.is_sinusoidal_hfb_enabled():
+                    self.prosody.enable_sinusoidal_hfb(False)
+                    if self.prosody.sinusoidal_hfb_enabled_var:
+                        self.prosody.sinusoidal_hfb_enabled_var.set(False)
+                    print("正弦波モードは無効化されました。")
+                self._update_hrf2_status()
+            else:
+                self.prosody.set_parameter("intonation", 1.0)
+                self.update_parameter_display("intonation")
+                self._update_hrf2_status()
+
+            self._update_button_states()
+        except Exception as e_toggle_hrf2:
+            print(f"HRF2 toggle error: {e_toggle_hrf2}")
+            self.set_status("HRF2モード切り替えエラー", "red")
+
+    def _on_hrf2_target_change(self):
+        """HRF2目標心拍数の変更"""
+        try:
+            target = self.hrf2_target_hr_var.get()
+            self.prosody.set_hrf2_target_hr(target)
+            self._update_hrf2_status()
+            self._log_to_console(f"HRF2目標心拍数を {target:.0f} BPM に設定")
+        except Exception as e:
+            print(f"HRF2 target change error: {e}")
+
+    def _apply_hrf2_pid_gains(self):
+        """HRF2のPIDゲインを適用"""
+        try:
+            kp = self.hrf2_kp_var.get()
+            ki = self.hrf2_ki_var.get()
+            kd = self.hrf2_kd_var.get()
+            self.prosody.set_hrf2_pid_gains(kp, ki, kd)
+            self.set_status(f"HRF2 PIDゲイン適用: Kp={kp}, Ki={ki}, Kd={kd}", "blue")
+            self._log_to_console(f"HRF2 PIDゲイン: Kp={kp}, Ki={ki}, Kd={kd}")
+        except Exception as e:
+            print(f"HRF2 PID gains error: {e}")
+            self.set_status("PIDゲイン設定エラー", "red")
+
+    def _update_hrf2_status(self):
+        """HRF2ステータス表示を更新"""
+        if not hasattr(self, 'hrf2_status_label'):
+            return
+        if self.prosody.is_hrf2_enabled():
+            target = self.prosody.get_hrf2_target_hr()
+            current_hr = self.hr_monitor.get_current_hr() if self.hr_monitor.is_connected else 0
+            if current_hr > 0:
+                status_text = f"HRF2: 目標{target:.0f}BPM / 現在{current_hr}BPM"
+            else:
+                status_text = f"HRF2: 目標{target:.0f}BPM / HR未取得"
+            self.hrf2_status_label.config(text=status_text, foreground="green")
+        else:
+            self.hrf2_status_label.config(text="HRF2: 無効", foreground="gray")
 
     def on_speaker_selected(self, event=None):
         try:
