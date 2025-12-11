@@ -85,11 +85,35 @@ INTERACTION_EVENT_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "interaction_events_
 # --- API and Service URLs ---
 VOICEVOX_URL = "http://localhost:50021"
 
-# --- OpenAI API Settings ---
+# --- LLM API Settings ---
+# ローカルLLM使用時は USE_LOCAL_LLM = True に設定
+USE_LOCAL_LLM = True
+
+# ローカルLLM設定 (llama.cpp, Ollama, LM Studio など)
+LOCAL_LLM_BASE_URL = "http://localhost:8080/v1"  # llama.cpp server
+LOCAL_LLM_MODEL = "local-model"  # ローカルモデル名（サーバーによっては無視される）
+LOCAL_LLM_API_KEY = "not-needed"  # ローカルLLMでは通常不要
+
+# ローカルLLMサーバー自動起動設定
+LOCAL_LLM_AUTO_START = True  # True: main.py起動時にLLMサーバーも自動起動
+LOCAL_LLM_MODEL_PATH = "/Users/user/models/Llama-3-ELYZA-JP-8B-q4_k_m.gguf"  # 使用するモデルファイル (GGUFフォーマット)
+LOCAL_LLM_HOST = "127.0.0.1"
+LOCAL_LLM_PORT = 8080
+LOCAL_LLM_CONTEXT_SIZE = 4096  # コンテキストサイズ
+LOCAL_LLM_GPU_LAYERS = -1  # -1: 全レイヤーをGPUに載せる (Metal/CUDA), 0: CPUのみ
+
+# OpenAI API設定 (USE_LOCAL_LLM = False の場合に使用)
 OPENAI_MODEL = "gpt-4o-mini"
-OPENAI_MAX_TOKENS = 200
-OPENAI_TEMPERATURE = 0.7
-OPENAI_TIMEOUT = 25
+
+# 共通設定
+LLM_MAX_TOKENS = 200
+LLM_TEMPERATURE = 0.7
+LLM_TIMEOUT = 30
+
+# 後方互換性のため
+OPENAI_MAX_TOKENS = LLM_MAX_TOKENS
+OPENAI_TEMPERATURE = LLM_TEMPERATURE
+OPENAI_TIMEOUT = LLM_TIMEOUT
 
 # --- Polar Device Settings ---
 POLAR_VERITY_SENSE_NAME = "Polar Sense"

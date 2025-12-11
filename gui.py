@@ -124,8 +124,15 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         self.logging_thread = LoggingThread(self.log_queue)
         self.logging_thread.start()
 
-        # Initialize OpenAI client before it's used
-        self.openai_client = openai.OpenAI() 
+        # Initialize LLM client (supports both local LLM and OpenAI)
+        if config.USE_LOCAL_LLM:
+            self.openai_client = openai.OpenAI(
+                base_url=config.LOCAL_LLM_BASE_URL,
+                api_key=config.LOCAL_LLM_API_KEY
+            )
+            print(f"ローカルLLMに接続: {config.LOCAL_LLM_BASE_URL}")
+        else:
+            self.openai_client = openai.OpenAI() 
         
         self.conversation_manager = ConversationManager(
             audio_processor=self.audio,
@@ -1407,7 +1414,8 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
                 print(f"User: {user_text}")
                 self._log_to_console(f"ユーザー発話処理完了: {user_text[:70]}{'...' if len(user_text)>70 else ''}")
                 self.set_status("AI応答を生成中...", "orange")
-                self._log_to_console(f"OpenAI APIに問い合わせ開始 (モデル: {config.OPENAI_MODEL})")
+                current_model = config.LOCAL_LLM_MODEL if config.USE_LOCAL_LLM else config.OPENAI_MODEL
+                self._log_to_console(f"LLM APIに問い合わせ開始 (モデル: {current_model}, ローカル: {config.USE_LOCAL_LLM})")
                 assistant_response_text = "申し訳ありません、応答を処理できませんでした。"
                 
                 try:
@@ -1415,33 +1423,43 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
                     self._log_to_console(f"OpenAI APIに送信するメッセージ数: {len(messages_to_send)}")
 
                     response = self.openai_client.chat.completions.create(
-                        model=config.OPENAI_MODEL,
+                        model=current_model,
                         messages=messages_to_send,
-                        max_tokens=config.OPENAI_MAX_TOKENS,
-                        temperature=config.OPENAI_TEMPERATURE,
-                        timeout=config.OPENAI_TIMEOUT
+                        max_tokens=config.LLM_MAX_TOKENS,
+                        temperature=config.LLM_TEMPERATURE,
+                        timeout=config.LLM_TIMEOUT
                     )
                     
                     raw_response_content = response.choices[0].message.content
                     assistant_response_text = raw_response_content.strip() if raw_response_content else "AIからの応答が空でした。"
                     self._log_to_console(f"AI応答受信完了: {assistant_response_text[:100]}{'...' if len(assistant_response_text)>100 else ''}")
 
-                except openai.Timeout: 
-                    err_msg = "OpenAI API タイムアウト"
+                except openai.APITimeoutError:
+                    err_msg = "LLM API タイムアウト"
                     print(err_msg)
                     self.set_status("AI応答タイムアウト", "red")
                     self._log_to_console(f"エラー: {err_msg}")
                     assistant_response_text = "応答に時間がかかりすぎました。もう一度試してください。"
-                except openai.AuthenticationError as auth_err: 
-                    err_msg = f"OpenAI API 認証エラー: {auth_err}"
+                except openai.AuthenticationError as auth_err:
+                    err_msg = f"LLM API 認証エラー: {auth_err}"
                     print(err_msg)
                     self.set_status("AI API認証エラー", "red")
                     self._log_to_console(f"エラー: {err_msg}")
                     assistant_response_text = "AIとの通信で認証エラーが発生しました。APIキーを確認してください。"
-                    self.stop_conversation() 
+                    self.stop_conversation()
                     break
-                except openai.OpenAIError as api_err: 
-                    err_msg = f"OpenAI API エラー: {api_err}"
+                except openai.APIConnectionError as conn_err:
+                    err_msg = f"LLM API 接続エラー: {conn_err}"
+                    print(err_msg)
+                    if config.USE_LOCAL_LLM:
+                        self.set_status(f"ローカルLLM接続エラー ({config.LOCAL_LLM_BASE_URL})", "red")
+                        assistant_response_text = f"ローカルLLMサーバーに接続できませんでした。サーバーが起動しているか確認してください。"
+                    else:
+                        self.set_status("OpenAI API接続エラー", "red")
+                        assistant_response_text = "AIとの通信で接続エラーが発生しました。"
+                    self._log_to_console(f"エラー: {err_msg}")
+                except openai.APIError as api_err:
+                    err_msg = f"LLM API エラー: {api_err}"
                     print(err_msg); self.set_status(f"AI応答エラー: {type(api_err).__name__}", "red")
                     self._log_to_console(f"エラー: {err_msg}")
                     assistant_response_text = "AIとの通信でエラーが発生しました。"
