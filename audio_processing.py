@@ -574,10 +574,8 @@ class AudioProcessor:
                         rec_start_dt = datetime.datetime.now()
                         silent_start_time = None
 
-                        if self.hr_monitor and self.hr_monitor.is_connected:
-                            hr_at_start = self.hr_monitor.get_current_hr()
-                            self.log_heartrate_at_recording_start(hr_at_start)
-                            print(f"*** Recorded HR at recording start (Verity): {hr_at_start} BPM ***")
+                        # 話し始め時刻を記録（後でバッファからHRを取得するため）
+                        # HRの取得は録音終了後に行う
 
                         if not logged_recording_start:
                             print("Recording started...")
@@ -597,6 +595,21 @@ class AudioProcessor:
 
                 if is_recording_active:
                     rec_end_dt = datetime.datetime.now()
+
+                    # 話し始め時刻を中心に前後5秒（合計10秒）のバッファからHRを取得
+                    if self.hr_monitor and self.hr_monitor.is_connected and rec_start_dt:
+                        buffered_hr = self.hr_monitor.get_buffered_hr(
+                            target_time=rec_start_dt,
+                            window_seconds=5.0
+                        )
+                        if buffered_hr is not None:
+                            self.log_heartrate_at_recording_start(buffered_hr)
+                            print(f"*** Recorded HR at recording start (Verity, buffered median): {buffered_hr} BPM ***")
+                        else:
+                            # バッファにデータがない場合は現在値を使用
+                            hr_at_start = self.hr_monitor.get_current_hr()
+                            self.log_heartrate_at_recording_start(hr_at_start)
+                            print(f"*** Recorded HR at recording start (Verity, fallback to current): {hr_at_start} BPM ***")
 
                 if recorded_chunks:
                     audio_data = np.concatenate(recorded_chunks, axis=0)
