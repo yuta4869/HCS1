@@ -26,8 +26,8 @@ class HRF2Config:
     target_hr: float = 70.0
 
     # 抑揚の出力範囲
-    min_output: float = 0.3
-    max_output: float = 1.8
+    min_output: float = 0.0
+    max_output: float = 2.9
 
     # 積分項のアンチワインドアップ
     integral_max: float = 20.0
