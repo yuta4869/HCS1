@@ -111,7 +111,7 @@ if sys.platform == 'darwin':
     app = BUNDLE(
         coll,
         name='HCS_App.app',
-        icon=None,
+        icon='assets/icon.icns',
         bundle_identifier='com.hcs.heartrate-conversation',
         info_plist={
             'NSMicrophoneUsageDescription': 'This app requires microphone access for voice recognition.',
