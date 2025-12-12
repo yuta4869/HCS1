@@ -87,7 +87,8 @@ VOICEVOX_URL = "http://localhost:50021"
 
 # --- LLM API Settings ---
 # ローカルLLM使用時は USE_LOCAL_LLM = True に設定
-USE_LOCAL_LLM = True
+# デフォルトは False (OpenAI API を使用)
+USE_LOCAL_LLM = False
 
 # ローカルLLM設定 (llama.cpp, Ollama, LM Studio など)
 LOCAL_LLM_BASE_URL = "http://localhost:8080/v1"  # llama.cpp server
@@ -96,7 +97,9 @@ LOCAL_LLM_API_KEY = "not-needed"  # ローカルLLMでは通常不要
 
 # ローカルLLMサーバー自動起動設定
 LOCAL_LLM_AUTO_START = True  # True: main.py起動時にLLMサーバーも自動起動
-LOCAL_LLM_MODEL_PATH = "/Users/user/models/Llama-3-ELYZA-JP-8B-q4_k_m.gguf"  # 使用するモデルファイル (GGUFフォーマット)
+# モデルファイルのパス (GGUFフォーマット)
+# 例: ./models/Llama-3-ELYZA-JP-8B-q4_k_m.gguf
+LOCAL_LLM_MODEL_PATH = "./models/model.gguf"  # 使用するモデルファイル
 LOCAL_LLM_HOST = "127.0.0.1"
 LOCAL_LLM_PORT = 8080
 LOCAL_LLM_CONTEXT_SIZE = 4096  # コンテキストサイズ
