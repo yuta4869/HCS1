@@ -2932,7 +2932,8 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
                 
                 try:
                     messages_to_send = self.conversation_manager.get_messages()
-                    self._log_to_console(f"OpenAI APIに送信するメッセージ数: {len(messages_to_send)}")
+                    llm_type = "LocalLLM" if config.USE_LOCAL_LLM else "OpenAI"
+                    self._log_to_console(f"{llm_type}に送信するメッセージ数: {len(messages_to_send)}")
 
                     response = self.openai_client.chat.completions.create(
                         model=current_model,
