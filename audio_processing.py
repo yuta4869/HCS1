@@ -18,7 +18,7 @@ import soundfile as sf
 import tkinter as tk
 
 from faster_whisper import WhisperModel
-from hrf2_controller import HRF2Controller, HRF2Config
+from hrf2_controller import HRF2Controller, HRF2Config, ControlMode, AdaptiveConfig
 
 import config
 
@@ -269,6 +269,30 @@ class ProsodySettings:
     def set_hrf2_pid_gains(self, kp: float, ki: float, kd: float) -> None:
         """HRF2のPIDゲインを設定"""
         self.hrf2_controller.set_pid_gains(kp, ki, kd)
+
+    # ------------------------------------------------------------------
+    # HRF2: 制御モード切り替え（PID / 適応制御）
+    # ------------------------------------------------------------------
+    def set_hrf2_control_mode(self, mode: ControlMode) -> None:
+        """HRF2の制御モードを設定"""
+        self.hrf2_controller.control_mode = mode
+        print(f"HRF2 control mode set to: {mode.value}")
+
+    def get_hrf2_control_mode(self) -> ControlMode:
+        """HRF2の制御モードを取得"""
+        return self.hrf2_controller.control_mode
+
+    def set_hrf2_adaptive_params(self, gamma: float, tau: float) -> None:
+        """HRF2の適応制御パラメータを設定"""
+        self.hrf2_controller.set_adaptive_params(gamma, tau)
+
+    def get_hrf2_adaptive_theta(self) -> float:
+        """HRF2の適応パラメータθを取得"""
+        return self.hrf2_controller.get_adaptive_theta()
+
+    def get_hrf2_adaptive_config(self) -> AdaptiveConfig:
+        """HRF2の適応制御設定を取得"""
+        return self.hrf2_controller.get_adaptive_config()
 
 
 class VoicevoxManager:

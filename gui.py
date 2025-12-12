@@ -34,6 +34,7 @@ from logger_utils import LoggingThread, get_timestamped_log_path, format_subject
 from polar_monitor import HeartRateMonitor, H10Monitor
 from conversation_manager import ConversationManager
 from audio_processing import ProsodySettings, SpeakerSettings, AudioProcessor, VoicevoxManager
+from hrf2_controller import ControlMode
 from video_recorder import VideoRecorder
 from audio_device_utils import get_conversation_mic_device, get_secondary_mic_device
 
@@ -887,43 +888,84 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         hrf2_frame = ttk.LabelFrame(speaker_hrf2_container, text="HRF2 (心拍追従モード)", padding="10")
         hrf2_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
 
-        # HRF2有効/無効チェックボックス
+        # Row 0: HRF2有効/無効チェックボックス と 制御モード選択
+        hrf2_row0_frame = ttk.Frame(hrf2_frame)
+        hrf2_row0_frame.grid(row=0, column=0, columnspan=8, sticky=tk.W, pady=2, padx=5)
+
         self.prosody.hrf2_enabled_var = tk.BooleanVar(value=self.prosody.is_hrf2_enabled())
         hrf2_checkbox = ttk.Checkbutton(
-            hrf2_frame, text="HRF2モード有効",
+            hrf2_row0_frame, text="HRF2有効",
             variable=self.prosody.hrf2_enabled_var, command=self.toggle_hrf2
         )
-        hrf2_checkbox.grid(row=0, column=0, columnspan=2, sticky=tk.W, pady=2, padx=5)
+        hrf2_checkbox.pack(side=tk.LEFT, padx=(0, 10))
+
+        # 制御モード選択（PID / Adaptive）
+        ttk.Label(hrf2_row0_frame, text="制御:").pack(side=tk.LEFT, padx=(0, 2))
+        self.hrf2_control_mode_var = tk.StringVar(value=self.prosody.get_hrf2_control_mode().value)
+        hrf2_mode_combo = ttk.Combobox(
+            hrf2_row0_frame, textvariable=self.hrf2_control_mode_var,
+            values=["PID", "Adaptive"], state="readonly", width=8
+        )
+        hrf2_mode_combo.pack(side=tk.LEFT, padx=(0, 10))
+        hrf2_mode_combo.bind("<<ComboboxSelected>>", self._on_hrf2_control_mode_change)
 
         # 目標心拍数
-        ttk.Label(hrf2_frame, text="目標BPM:").grid(row=1, column=0, sticky=tk.W, pady=2, padx=5)
+        ttk.Label(hrf2_row0_frame, text="目標BPM:").pack(side=tk.LEFT, padx=(0, 2))
         self.hrf2_target_hr_var = tk.DoubleVar(value=self.prosody.get_hrf2_target_hr())
         hrf2_target_spinbox = ttk.Spinbox(
-            hrf2_frame, from_=40, to=180, width=6,
+            hrf2_row0_frame, from_=40, to=180, width=5,
             textvariable=self.hrf2_target_hr_var,
             command=self._on_hrf2_target_change
         )
-        hrf2_target_spinbox.grid(row=1, column=1, sticky=tk.W, pady=2, padx=5)
+        hrf2_target_spinbox.pack(side=tk.LEFT)
         hrf2_target_spinbox.bind("<Return>", lambda e: self._on_hrf2_target_change())
 
-        # PIDゲイン設定
-        ttk.Label(hrf2_frame, text="Kp:").grid(row=2, column=0, sticky=tk.W, pady=2, padx=5)
+        # Row 1: PIDゲイン設定
+        self.hrf2_pid_frame = ttk.Frame(hrf2_frame)
+        self.hrf2_pid_frame.grid(row=1, column=0, columnspan=8, sticky=tk.W, pady=2, padx=5)
+
+        ttk.Label(self.hrf2_pid_frame, text="PID:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(self.hrf2_pid_frame, text="Kp:").pack(side=tk.LEFT)
         self.hrf2_kp_var = tk.DoubleVar(value=0.02)
-        ttk.Entry(hrf2_frame, textvariable=self.hrf2_kp_var, width=6).grid(row=2, column=1, sticky=tk.W, pady=2, padx=5)
+        ttk.Entry(self.hrf2_pid_frame, textvariable=self.hrf2_kp_var, width=6).pack(side=tk.LEFT, padx=(0, 5))
 
-        ttk.Label(hrf2_frame, text="Ki:").grid(row=2, column=2, sticky=tk.W, pady=2, padx=5)
+        ttk.Label(self.hrf2_pid_frame, text="Ki:").pack(side=tk.LEFT)
         self.hrf2_ki_var = tk.DoubleVar(value=0.005)
-        ttk.Entry(hrf2_frame, textvariable=self.hrf2_ki_var, width=6).grid(row=2, column=3, sticky=tk.W, pady=2, padx=5)
+        ttk.Entry(self.hrf2_pid_frame, textvariable=self.hrf2_ki_var, width=6).pack(side=tk.LEFT, padx=(0, 5))
 
-        ttk.Label(hrf2_frame, text="Kd:").grid(row=2, column=4, sticky=tk.W, pady=2, padx=5)
+        ttk.Label(self.hrf2_pid_frame, text="Kd:").pack(side=tk.LEFT)
         self.hrf2_kd_var = tk.DoubleVar(value=0.01)
-        ttk.Entry(hrf2_frame, textvariable=self.hrf2_kd_var, width=6).grid(row=2, column=5, sticky=tk.W, pady=2, padx=5)
+        ttk.Entry(self.hrf2_pid_frame, textvariable=self.hrf2_kd_var, width=6).pack(side=tk.LEFT, padx=(0, 5))
 
-        ttk.Button(hrf2_frame, text="PID適用", command=self._apply_hrf2_pid_gains).grid(row=2, column=6, sticky=tk.W, pady=2, padx=5)
+        ttk.Button(self.hrf2_pid_frame, text="適用", command=self._apply_hrf2_pid_gains).pack(side=tk.LEFT)
 
-        # HRF2ステータス表示
+        # Row 2: 適応制御パラメータ設定
+        self.hrf2_adaptive_frame = ttk.Frame(hrf2_frame)
+        self.hrf2_adaptive_frame.grid(row=2, column=0, columnspan=8, sticky=tk.W, pady=2, padx=5)
+
+        ttk.Label(self.hrf2_adaptive_frame, text="適応:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(self.hrf2_adaptive_frame, text="γ:").pack(side=tk.LEFT)
+        adaptive_config = self.prosody.get_hrf2_adaptive_config()
+        self.hrf2_gamma_var = tk.DoubleVar(value=adaptive_config.gamma)
+        ttk.Entry(self.hrf2_adaptive_frame, textvariable=self.hrf2_gamma_var, width=7).pack(side=tk.LEFT, padx=(0, 5))
+
+        ttk.Label(self.hrf2_adaptive_frame, text="τ:").pack(side=tk.LEFT)
+        self.hrf2_tau_var = tk.DoubleVar(value=adaptive_config.reference_time_constant)
+        ttk.Entry(self.hrf2_adaptive_frame, textvariable=self.hrf2_tau_var, width=5).pack(side=tk.LEFT, padx=(0, 5))
+
+        ttk.Button(self.hrf2_adaptive_frame, text="適用", command=self._apply_hrf2_adaptive_params).pack(side=tk.LEFT, padx=(0, 5))
+
+        # 適応パラメータθの表示
+        ttk.Label(self.hrf2_adaptive_frame, text="θ:").pack(side=tk.LEFT)
+        self.hrf2_theta_label = ttk.Label(self.hrf2_adaptive_frame, text="0.0200", width=7)
+        self.hrf2_theta_label.pack(side=tk.LEFT)
+
+        # 初期表示の切り替え
+        self._update_hrf2_param_frames()
+
+        # Row 3: HRF2ステータス表示
         self.hrf2_status_label = ttk.Label(hrf2_frame, text="HRF2: 無効", foreground="gray", style='Status.TLabel')
-        self.hrf2_status_label.grid(row=3, column=0, columnspan=7, sticky=tk.W, pady=2, padx=5)
+        self.hrf2_status_label.grid(row=3, column=0, columnspan=8, sticky=tk.W, pady=2, padx=5)
 
         row_idx += 1
 
@@ -2374,13 +2416,70 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         if self.prosody.is_hrf2_enabled():
             target = self.prosody.get_hrf2_target_hr()
             current_hr = self.hr_monitor.get_current_hr() if self.hr_monitor.is_connected else 0
+            mode = self.prosody.get_hrf2_control_mode().value
             if current_hr > 0:
-                status_text = f"HRF2: 目標{target:.0f}BPM / 現在{current_hr}BPM"
+                if mode == "Adaptive":
+                    theta = self.prosody.get_hrf2_adaptive_theta()
+                    status_text = f"HRF2({mode}): 目標{target:.0f}BPM / 現在{current_hr}BPM / θ={theta:.4f}"
+                    # θラベルも更新
+                    if hasattr(self, 'hrf2_theta_label'):
+                        self.hrf2_theta_label.config(text=f"{theta:.4f}")
+                else:
+                    status_text = f"HRF2({mode}): 目標{target:.0f}BPM / 現在{current_hr}BPM"
             else:
-                status_text = f"HRF2: 目標{target:.0f}BPM / HR未取得"
+                status_text = f"HRF2({mode}): 目標{target:.0f}BPM / HR未取得"
             self.hrf2_status_label.config(text=status_text, foreground="green")
         else:
             self.hrf2_status_label.config(text="HRF2: 無効", foreground="gray")
+
+    def _on_hrf2_control_mode_change(self, event=None):
+        """HRF2制御モードの変更"""
+        try:
+            mode_str = self.hrf2_control_mode_var.get()
+            mode = ControlMode.PID if mode_str == "PID" else ControlMode.ADAPTIVE
+            self.prosody.set_hrf2_control_mode(mode)
+            self._update_hrf2_param_frames()
+            self._update_hrf2_status()
+            self.set_status(f"HRF2制御モードを「{mode_str}」に変更しました", "blue")
+            self._log_to_console(f"HRF2制御モード: {mode_str}")
+        except Exception as e:
+            print(f"HRF2 control mode change error: {e}")
+            self.set_status("制御モード変更エラー", "red")
+
+    def _update_hrf2_param_frames(self):
+        """制御モードに応じてパラメータフレームの表示/非表示を切り替え"""
+        if not hasattr(self, 'hrf2_pid_frame') or not hasattr(self, 'hrf2_adaptive_frame'):
+            return
+
+        mode = self.prosody.get_hrf2_control_mode()
+        if mode == ControlMode.PID:
+            # PIDフレームを強調、適応フレームを薄く
+            for child in self.hrf2_pid_frame.winfo_children():
+                if isinstance(child, (ttk.Entry, ttk.Button)):
+                    child.configure(state="normal")
+            for child in self.hrf2_adaptive_frame.winfo_children():
+                if isinstance(child, (ttk.Entry, ttk.Button)):
+                    child.configure(state="disabled")
+        else:
+            # 適応フレームを強調、PIDフレームを薄く
+            for child in self.hrf2_pid_frame.winfo_children():
+                if isinstance(child, (ttk.Entry, ttk.Button)):
+                    child.configure(state="disabled")
+            for child in self.hrf2_adaptive_frame.winfo_children():
+                if isinstance(child, (ttk.Entry, ttk.Button)):
+                    child.configure(state="normal")
+
+    def _apply_hrf2_adaptive_params(self):
+        """HRF2の適応制御パラメータを適用"""
+        try:
+            gamma = self.hrf2_gamma_var.get()
+            tau = self.hrf2_tau_var.get()
+            self.prosody.set_hrf2_adaptive_params(gamma, tau)
+            self.set_status(f"適応制御パラメータ適用: γ={gamma}, τ={tau}", "blue")
+            self._log_to_console(f"適応制御パラメータ: γ={gamma}, τ={tau}")
+        except Exception as e:
+            print(f"HRF2 adaptive params error: {e}")
+            self.set_status("適応制御パラメータ設定エラー", "red")
 
     def on_speaker_selected(self, event=None):
         try:
