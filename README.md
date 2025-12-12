@@ -93,6 +93,29 @@ OpenAI API を使用する場合:
 export OPENAI_API_KEY="your_api_key_here"
 ```
 
+### ローカル LLM セットアップ（オプション）
+
+OpenAI API を使わずにローカルで LLM を動かす場合:
+
+1. **モデルをダウンロード** (GGUF 形式):
+```bash
+# 例: ELYZA Japanese Llama 3
+huggingface-cli download mmnga/Llama-3-ELYZA-JP-8B-gguf Llama-3-ELYZA-JP-8B-q4_k_m.gguf --local-dir ./models
+```
+
+2. **GPU アクセラレーション** (オプション):
+```bash
+# macOS (Metal)
+CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
+
+# NVIDIA GPU (CUDA)
+CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
+```
+
+3. **GUI で設定**:
+   - LLM 選択で「ローカル LLM」を選択
+   - モデルファイルのパスを指定
+
 ### 使い方
 
 ```bash
@@ -167,6 +190,29 @@ For OpenAI API:
 ```bash
 export OPENAI_API_KEY="your_api_key_here"
 ```
+
+### Local LLM Setup (Optional)
+
+To run LLM locally without OpenAI API:
+
+1. **Download a model** (GGUF format):
+```bash
+# Example: ELYZA Japanese Llama 3
+huggingface-cli download mmnga/Llama-3-ELYZA-JP-8B-gguf Llama-3-ELYZA-JP-8B-q4_k_m.gguf --local-dir ./models
+```
+
+2. **GPU Acceleration** (optional):
+```bash
+# macOS (Metal)
+CMAKE_ARGS="-DGGML_METAL=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
+
+# NVIDIA GPU (CUDA)
+CMAKE_ARGS="-DGGML_CUDA=on" pip install llama-cpp-python --force-reinstall --no-cache-dir
+```
+
+3. **Configure in GUI**:
+   - Select "Local LLM" in LLM selection
+   - Specify the model file path
 
 ### Usage
 

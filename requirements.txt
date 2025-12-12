@@ -13,3 +13,4 @@ seaborn
 pandas
 openpyxl
 japanize-matplotlib
+llama-cpp-python
