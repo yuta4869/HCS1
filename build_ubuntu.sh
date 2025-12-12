@@ -102,6 +102,121 @@ else
     exit 1
 fi
 
+# --- オプション: DEBパッケージ作成 ---
+echo ""
+read -p "DEBパッケージを作成しますか? (y/N): " create_deb
+if [[ "$create_deb" =~ ^[Yy]$ ]]; then
+    echo ""
+    echo "7. DEBパッケージを作成中..."
+
+    # バージョン取得（HCS_App.spec から）
+    VERSION=$(grep -o "CFBundleShortVersionString.*" HCS_App.spec | grep -o "'[0-9.]*'" | tr -d "'")
+    if [ -z "$VERSION" ]; then
+        VERSION="1.0.0"
+    fi
+
+    # アーキテクチャ検出
+    ARCH=$(dpkg --print-architecture 2>/dev/null || echo "amd64")
+
+    DEB_NAME="hcs-app_${VERSION}_${ARCH}"
+    DEB_DIR="dist/$DEB_NAME"
+
+    # DEBパッケージ用ディレクトリ構造を作成
+    rm -rf "$DEB_DIR"
+    mkdir -p "$DEB_DIR/DEBIAN"
+    mkdir -p "$DEB_DIR/usr/local/bin"
+    mkdir -p "$DEB_DIR/usr/share/applications"
+    mkdir -p "$DEB_DIR/usr/share/doc/hcs-app"
+
+    # 実行ファイルをコピー
+    if [ -d "dist/HCS_App" ]; then
+        # onedirモードの場合
+        mkdir -p "$DEB_DIR/opt/hcs-app"
+        cp -r dist/HCS_App/* "$DEB_DIR/opt/hcs-app/"
+        # シンボリックリンクを作成
+        ln -sf /opt/hcs-app/HCS_App "$DEB_DIR/usr/local/bin/hcs-app"
+    else
+        # onefileモードの場合
+        cp dist/HCS_App "$DEB_DIR/usr/local/bin/hcs-app"
+    fi
+    chmod +x "$DEB_DIR/usr/local/bin/hcs-app" 2>/dev/null || true
+
+    # control ファイル作成
+    cat > "$DEB_DIR/DEBIAN/control" << EOF
+Package: hcs-app
+Version: $VERSION
+Section: science
+Priority: optional
+Architecture: $ARCH
+Depends: libc6, libgtk-3-0, libasound2, libpulse0
+Maintainer: HCS Developer <hcs@example.com>
+Description: Heart Rate Conversation System
+ A heart rate feedback conversation system with voice recognition,
+ text-to-speech, and Polar sensor integration.
+ .
+ Features:
+  - Voice recognition (Whisper)
+  - Text-to-speech (VOICEVOX)
+  - Heart rate monitoring (Polar Verity Sense, H10)
+  - LLM integration (Local or OpenAI)
+EOF
+
+    # postinst スクリプト（インストール後の処理）
+    cat > "$DEB_DIR/DEBIAN/postinst" << 'EOF'
+#!/bin/bash
+echo "HCS App がインストールされました。"
+echo "実行: hcs-app"
+echo ""
+echo "注意: VOICEVOXが必要です。Dockerで起動してください:"
+echo "  docker run -d --name voicevox -p 50021:50021 voicevox/voicevox_engine:cpu-ubuntu20.04-latest"
+EOF
+    chmod +x "$DEB_DIR/DEBIAN/postinst"
+
+    # デスクトップエントリ
+    cat > "$DEB_DIR/usr/share/applications/hcs-app.desktop" << EOF
+[Desktop Entry]
+Name=HCS App
+Comment=Heart Rate Conversation System
+Exec=hcs-app
+Terminal=true
+Type=Application
+Categories=Science;Education;Medical;
+Keywords=heart;rate;conversation;voice;
+EOF
+
+    # copyright ファイル
+    cat > "$DEB_DIR/usr/share/doc/hcs-app/copyright" << EOF
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: hcs-app
+Source: https://github.com/yuta4869/HCS1
+
+Files: *
+Copyright: $(date +%Y) HCS Developers
+License: MIT
+EOF
+
+    # DEBパッケージをビルド
+    dpkg-deb --build "$DEB_DIR" "dist/${DEB_NAME}.deb"
+
+    if [ -f "dist/${DEB_NAME}.deb" ]; then
+        DEB_SIZE=$(du -sh "dist/${DEB_NAME}.deb" | cut -f1)
+        echo ""
+        echo "   DEB作成完了: dist/${DEB_NAME}.deb"
+        echo "   DEBサイズ: $DEB_SIZE"
+        echo ""
+        echo "   インストール方法:"
+        echo "   sudo dpkg -i dist/${DEB_NAME}.deb"
+        echo ""
+        echo "   GitHub Releases へのアップロード:"
+        echo "   gh release create v$VERSION dist/${DEB_NAME}.deb --title \"v$VERSION\""
+
+        # 一時ディレクトリを削除
+        rm -rf "$DEB_DIR"
+    else
+        echo "   DEB作成に失敗しました"
+    fi
+fi
+
 # --- オプション: デスクトップエントリ作成 ---
 echo ""
 read -p "デスクトップショートカットを作成しますか? (y/N): " create_desktop

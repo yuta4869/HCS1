@@ -80,6 +80,63 @@ if [ -d "dist/HCS_App.app" ]; then
     # アプリサイズを表示
     APP_SIZE=$(du -sh dist/HCS_App.app | cut -f1)
     echo "アプリサイズ: $APP_SIZE"
+
+    # --- DMG作成 ---
+    echo ""
+    read -p "DMGファイルを作成しますか? (y/N): " create_dmg
+    if [[ "$create_dmg" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "6. DMGファイルを作成中..."
+
+        # create-dmg がインストールされているか確認
+        if ! command -v create-dmg &> /dev/null; then
+            echo "   create-dmg をインストール中..."
+            brew install create-dmg
+        fi
+
+        # バージョン取得（HCS_App.spec から）
+        VERSION=$(grep -o "CFBundleShortVersionString.*" HCS_App.spec | grep -o "'[0-9.]*'" | tr -d "'")
+        if [ -z "$VERSION" ]; then
+            VERSION="1.0.0"
+        fi
+
+        DMG_NAME="HCS_App_${VERSION}_macOS.dmg"
+
+        # 既存のDMGを削除
+        rm -f "dist/$DMG_NAME"
+
+        # DMG作成
+        create-dmg \
+            --volname "HCS App $VERSION" \
+            --volicon "dist/HCS_App.app/Contents/Resources/icon.icns" 2>/dev/null || true
+
+        # create-dmg でDMG作成（シンプル版）
+        create-dmg \
+            --volname "HCS App" \
+            --window-size 600 400 \
+            --icon "HCS_App.app" 150 185 \
+            --app-drop-link 450 185 \
+            --no-internet-enable \
+            "dist/$DMG_NAME" \
+            "dist/HCS_App.app" 2>/dev/null || {
+                # create-dmg が失敗した場合、hdiutil で作成
+                echo "   create-dmg が失敗したため、hdiutil で作成します..."
+                hdiutil create -volname "HCS App" -srcfolder "dist/HCS_App.app" -ov -format UDZO "dist/$DMG_NAME"
+            }
+
+        if [ -f "dist/$DMG_NAME" ]; then
+            DMG_SIZE=$(du -sh "dist/$DMG_NAME" | cut -f1)
+            echo ""
+            echo "   DMG作成完了: dist/$DMG_NAME"
+            echo "   DMGサイズ: $DMG_SIZE"
+            echo ""
+            echo "   GitHub Releases へのアップロード:"
+            echo "   gh release create v$VERSION dist/$DMG_NAME --title \"v$VERSION\""
+        else
+            echo "   DMG作成に失敗しました"
+        fi
+    fi
+
 elif [ -f "dist/HCS_App" ]; then
     echo "  ビルド成功! (実行ファイル)"
     echo "========================================"
