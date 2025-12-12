@@ -357,6 +357,9 @@ class H10Monitor:
         self.log_queue: queue.Queue = log_queue_ref
         self.h10_ecg_session_filepath: str = ""
         self.h10_hr_session_filepath: str = ""
+        # ECGリアルタイム表示用バッファ（直近5秒分 = 130Hz * 5s = 650サンプル）
+        self.ecg_buffer: List[float] = []
+        self.ecg_buffer_max_size: int = 650
 
     async def start_monitoring_async(self):
         """Asynchronous method to connect and start monitoring."""
@@ -385,6 +388,15 @@ class H10Monitor:
             # If actual RR intervals are needed, a different characteristic or calculation would be required.
             return self.current_h10_hr
 
+    def get_ecg_buffer(self) -> List[float]:
+        """リアルタイム表示用ECGバッファを取得（コピーを返す）"""
+        with self.ecg_lock:
+            return self.ecg_buffer.copy()
+
+    def clear_ecg_buffer(self) -> None:
+        """ECGバッファをクリア"""
+        with self.ecg_lock:
+            self.ecg_buffer.clear()
 
     def initialize_h10_ecg_session_csv(self, filepath: str):
         """Stores the intended path for the H10 ECG session log and signals logger thread."""
@@ -426,7 +438,6 @@ class H10Monitor:
         """Callback for receiving ECG data from H10 PMD characteristic."""
         try:
             if not data: return
-            if not self.h10_ecg_session_filepath: return # Don't process if no log file is set
 
             # Type 0 for ECG data
             if data[0] == 0x00: # ECG data
@@ -437,22 +448,32 @@ class H10Monitor:
                 samples_raw = data[10:] # Skip type and timestamp
                 offset = 0
                 payloads_to_log = []
+                ecg_samples = []
 
-                # No need for ecg_lock here as this handler processes data serially for this device
                 while offset + step <= len(samples_raw):
                     # ECG value is in microvolts (uV)
                     raw_value = int.from_bytes(samples_raw[offset:offset+step], byteorder='little', signed=True)
-                    ecg_value_uv = float(raw_value) # Original code had / 1.0, which is redundant
+                    ecg_value_uv = float(raw_value)
+                    ecg_samples.append(ecg_value_uv)
                     payloads_to_log.append([timestamp_str, device_timestamp_ns, f"{ecg_value_uv:.2f}"])
                     offset += step
 
-                for payload_item in payloads_to_log:
-                    record = logging.LogRecord(
-                        name=config.LOGGER_H10_ECG_SESSION, level=logging.INFO, pathname="", lineno=0,
-                        msg="", args=(payload_item,), exc_info=None, func=""
-                    )
-                    record.payload = payload_item # type: ignore
-                    self.log_queue.put(record)
+                # リアルタイム表示用バッファに追加
+                with self.ecg_lock:
+                    self.ecg_buffer.extend(ecg_samples)
+                    # バッファサイズを制限
+                    if len(self.ecg_buffer) > self.ecg_buffer_max_size:
+                        self.ecg_buffer = self.ecg_buffer[-self.ecg_buffer_max_size:]
+
+                # ログファイルが設定されている場合のみ記録
+                if self.h10_ecg_session_filepath:
+                    for payload_item in payloads_to_log:
+                        record = logging.LogRecord(
+                            name=config.LOGGER_H10_ECG_SESSION, level=logging.INFO, pathname="", lineno=0,
+                            msg="", args=(payload_item,), exc_info=None, func=""
+                        )
+                        record.payload = payload_item # type: ignore
+                        self.log_queue.put(record)
 
         except RuntimeError as e:
             if "Event loop is closed" not in str(e):
