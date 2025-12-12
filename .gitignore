@@ -15,6 +15,16 @@ test_audio/
 # Archives and sound files
 *.zip
 *.wav
+*.mp4
+*.mp3
+
+# Model files and cache
+*.gguf
+models/
+*.cache/
+
+# Logs (large files)
+Logs/
 
 # IDE settings
 .vscode/
@@ -24,4 +34,3 @@ test_audio/
 
 logs/
 HCS1.git/
-.DS_Store
