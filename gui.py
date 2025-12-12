@@ -966,12 +966,35 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         self.hrf2_theta_label = ttk.Label(self.hrf2_adaptive_frame, text="0.0200", width=7)
         self.hrf2_theta_label.pack(side=tk.LEFT)
 
+        # Row 3: ゲインスケジューリング設定
+        self.hrf2_gainschedule_frame = ttk.Frame(hrf2_frame)
+        self.hrf2_gainschedule_frame.grid(row=3, column=0, columnspan=8, sticky=tk.W, pady=2, padx=5)
+
+        ttk.Label(self.hrf2_gainschedule_frame, text="GS:").pack(side=tk.LEFT, padx=(0, 5))
+
+        # 閾値設定
+        ttk.Label(self.hrf2_gainschedule_frame, text="高閾値:").pack(side=tk.LEFT)
+        gs_config = self.prosody.get_hrf2_gain_schedule_config()
+        self.hrf2_gs_high_var = tk.DoubleVar(value=gs_config.error_threshold_high)
+        ttk.Entry(self.hrf2_gainschedule_frame, textvariable=self.hrf2_gs_high_var, width=4).pack(side=tk.LEFT, padx=(0, 3))
+
+        ttk.Label(self.hrf2_gainschedule_frame, text="中閾値:").pack(side=tk.LEFT)
+        self.hrf2_gs_med_var = tk.DoubleVar(value=gs_config.error_threshold_medium)
+        ttk.Entry(self.hrf2_gainschedule_frame, textvariable=self.hrf2_gs_med_var, width=4).pack(side=tk.LEFT, padx=(0, 5))
+
+        ttk.Button(self.hrf2_gainschedule_frame, text="適用", command=self._apply_hrf2_gs_params).pack(side=tk.LEFT, padx=(0, 5))
+
+        # 現在のゾーン表示
+        ttk.Label(self.hrf2_gainschedule_frame, text="zone:").pack(side=tk.LEFT)
+        self.hrf2_gs_zone_label = ttk.Label(self.hrf2_gainschedule_frame, text="---", width=6)
+        self.hrf2_gs_zone_label.pack(side=tk.LEFT)
+
         # 初期表示の切り替え
         self._update_hrf2_param_frames()
 
-        # Row 3: HRF2ステータス表示
+        # Row 4: HRF2ステータス表示
         self.hrf2_status_label = ttk.Label(hrf2_frame, text="HRF2: 無効", foreground="gray", style='Status.TLabel')
-        self.hrf2_status_label.grid(row=3, column=0, columnspan=8, sticky=tk.W, pady=2, padx=5)
+        self.hrf2_status_label.grid(row=4, column=0, columnspan=8, sticky=tk.W, pady=2, padx=5)
 
         row_idx += 1
 
@@ -2463,30 +2486,28 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
             return
 
         mode = self.prosody.get_hrf2_control_mode()
+
+        # 各フレームの有効/無効を設定するヘルパー
+        def set_frame_state(frame, enabled):
+            for child in frame.winfo_children():
+                if isinstance(child, (ttk.Entry, ttk.Button)):
+                    child.configure(state="normal" if enabled else "disabled")
+
         if mode == ControlMode.PID:
-            # PIDフレームを有効、適応フレームを無効
-            for child in self.hrf2_pid_frame.winfo_children():
-                if isinstance(child, (ttk.Entry, ttk.Button)):
-                    child.configure(state="normal")
-            for child in self.hrf2_adaptive_frame.winfo_children():
-                if isinstance(child, (ttk.Entry, ttk.Button)):
-                    child.configure(state="disabled")
+            set_frame_state(self.hrf2_pid_frame, True)
+            set_frame_state(self.hrf2_adaptive_frame, False)
+            if hasattr(self, 'hrf2_gainschedule_frame'):
+                set_frame_state(self.hrf2_gainschedule_frame, False)
         elif mode == ControlMode.ADAPTIVE:
-            # 適応フレームを有効、PIDフレームを無効
-            for child in self.hrf2_pid_frame.winfo_children():
-                if isinstance(child, (ttk.Entry, ttk.Button)):
-                    child.configure(state="disabled")
-            for child in self.hrf2_adaptive_frame.winfo_children():
-                if isinstance(child, (ttk.Entry, ttk.Button)):
-                    child.configure(state="normal")
+            set_frame_state(self.hrf2_pid_frame, False)
+            set_frame_state(self.hrf2_adaptive_frame, True)
+            if hasattr(self, 'hrf2_gainschedule_frame'):
+                set_frame_state(self.hrf2_gainschedule_frame, False)
         else:  # GAIN_SCHEDULED
-            # 両フレームを無効（ゲインスケジューリングは自動調整のため）
-            for child in self.hrf2_pid_frame.winfo_children():
-                if isinstance(child, (ttk.Entry, ttk.Button)):
-                    child.configure(state="disabled")
-            for child in self.hrf2_adaptive_frame.winfo_children():
-                if isinstance(child, (ttk.Entry, ttk.Button)):
-                    child.configure(state="disabled")
+            set_frame_state(self.hrf2_pid_frame, False)
+            set_frame_state(self.hrf2_adaptive_frame, False)
+            if hasattr(self, 'hrf2_gainschedule_frame'):
+                set_frame_state(self.hrf2_gainschedule_frame, True)
 
     def _apply_hrf2_adaptive_params(self):
         """HRF2の適応制御パラメータを適用"""
@@ -2499,6 +2520,18 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         except Exception as e:
             print(f"HRF2 adaptive params error: {e}")
             self.set_status("適応制御パラメータ設定エラー", "red")
+
+    def _apply_hrf2_gs_params(self):
+        """HRF2のゲインスケジューリングパラメータを適用"""
+        try:
+            high = self.hrf2_gs_high_var.get()
+            med = self.hrf2_gs_med_var.get()
+            self.prosody.set_hrf2_gain_schedule_thresholds(high, med)
+            self.set_status(f"GS閾値適用: 高={high}, 中={med}", "blue")
+            self._log_to_console(f"GSパラメータ: 高閾値={high}, 中閾値={med}")
+        except Exception as e:
+            print(f"HRF2 GS params error: {e}")
+            self.set_status("GS閾値設定エラー", "red")
 
     def on_speaker_selected(self, event=None):
         try:

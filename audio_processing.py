@@ -294,6 +294,18 @@ class ProsodySettings:
         """HRF2の適応制御設定を取得"""
         return self.hrf2_controller.get_adaptive_config()
 
+    def get_hrf2_gain_schedule_config(self):
+        """HRF2のゲインスケジューリング設定を取得"""
+        return self.hrf2_controller.get_gain_schedule_config()
+
+    def set_hrf2_gain_schedule_thresholds(self, high: float, medium: float) -> None:
+        """HRF2のゲインスケジューリング閾値を設定"""
+        self.hrf2_controller.set_gain_schedule_thresholds(high, medium)
+
+    def get_hrf2_gain_schedule_zone(self) -> str:
+        """HRF2の現在のゲイン領域を取得"""
+        return self.hrf2_controller.get_gain_schedule_zone()
+
 
 class VoicevoxManager:
     @staticmethod
