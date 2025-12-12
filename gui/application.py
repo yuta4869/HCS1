@@ -216,7 +216,38 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
 
     def _setup_conversation_tab(self) -> None:
         """会話システムタブのUIを構築"""
-        main_frame = self.conversation_tab
+        # スクロール可能なフレームを作成
+        tab_frame = self.conversation_tab
+        tab_frame.columnconfigure(0, weight=1)
+        tab_frame.rowconfigure(0, weight=1)
+
+        # Canvas + Scrollbar
+        canvas = tk.Canvas(tab_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # スクロール可能なメインフレーム
+        main_frame = ttk.Frame(canvas, padding="10")
+        canvas_window = canvas.create_window((0, 0), window=main_frame, anchor="nw")
+
+        def configure_scroll_region(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def configure_canvas_width(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+
+        main_frame.bind("<Configure>", configure_scroll_region)
+        canvas.bind("<Configure>", configure_canvas_width)
+
+        # マウスホイールでスクロール
+        def on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+        canvas.bind_all("<MouseWheel>", on_mousewheel)
+
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
         main_frame.columnconfigure(2, weight=2)
