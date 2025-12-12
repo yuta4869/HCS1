@@ -67,7 +67,7 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         'tkinter.test',
-        'unittest',
+        # 'unittest',  # torch が内部で unittest を必要とするため除外しない
     ],
     noarchive=False,
     optimize=0,
@@ -118,5 +118,7 @@ if sys.platform == 'darwin':
             'NSBluetoothAlwaysUsageDescription': 'This app requires Bluetooth access for heart rate monitoring.',
             'NSBluetoothPeripheralUsageDescription': 'This app requires Bluetooth access for heart rate monitoring.',
             'CFBundleShortVersionString': '6.5.0',
+            'NSSupportsSuddenTermination': False,  # 突然の終了を許可しない
+            'NSSupportsAutomaticTermination': False,  # 自動終了を許可しない
         },
     )
