@@ -8,7 +8,7 @@ A conversation system that integrates heart rate monitoring with speech prosody 
 
 ## 📥 ダウンロード / Download
 
-### 最新版 (v6.8.0)
+### 最新版 (v6.13.1)
 
 **方法1: スタンドアロンアプリ (推奨)**
 
@@ -28,10 +28,10 @@ cd HCS1
 **方法3: 特定バージョンをダウンロード**
 ```bash
 # 最新リリース
-git clone --branch v6.8.0 --depth 1 https://github.com/yuta4869/HCS1.git
+git clone --branch v6.13.1 --depth 1 https://github.com/yuta4869/HCS1.git
 
 # または ZIP でダウンロード
-# https://github.com/yuta4869/HCS1/archive/refs/tags/v6.8.0.zip
+# https://github.com/yuta4869/HCS1/archive/refs/tags/v6.13.1.zip
 ```
 
 ---
@@ -127,10 +127,49 @@ source .venv/bin/activate
 python3 main.py
 ```
 
-1. GUI が起動します
-2. Polar センサーを接続（任意）
-3. 「会話開始」ボタンをクリック
-4. 話しかけると AI が応答します
+#### 基本的な流れ
+
+1. **GUI 起動**: アプリを起動すると4つのタブがあるウィンドウが開きます
+2. **センサー接続**: 「センサー類 接続」ボタンで Polar デバイスを接続
+3. **被験者番号入力**: セッション情報に被験者IDを入力（ログファイル名に使用）
+4. **会話開始**: 「音声対話 開始」ボタンをクリック
+5. **対話**: 話しかけると AI が音声で応答します
+6. **終了**: 「音声対話 停止」ボタンで終了
+
+#### タブ説明
+
+| タブ | 機能 |
+|------|------|
+| **会話システム** | メインの対話画面。心拍数モニター、LLM設定、音声設定、プロンプト編集など |
+| **リアルタイムモニター** | 心拍数・ECG・HRV(SDNN)のリアルタイムグラフ表示 |
+| **ECG/HRV解析** | 保存されたECGデータからLF/HF・RMSSDを計算 |
+| **アンケート解析** | アンケートデータの統計解析・グラフ作成 |
+
+#### 会話システムタブの設定
+
+- **心拍数モニター**: 基準心拍数の設定、Polarセンサー接続
+- **セッション情報**: 被験者番号（ログファイル名に使用）
+- **LLM設定**: OpenAI API / ローカルLLM の切り替え
+- **AIプロンプト**: システムプロンプトの編集
+- **音声設定**: VOICEVOXの話者・速度・ピッチの調整
+- **HRF制御**: 心拍数フィードバック制御の有効/無効、制御モード選択
+
+#### リアルタイムモニター
+
+1. 「会話システム」タブでセンサーを接続
+2. 「リアルタイムモニター」タブに移動
+3. 「モニター開始」ボタンをクリック
+4. 心拍数、ECG波形、SDNN（心拍変動）がリアルタイム表示されます
+5. SDNNは30秒バッファで毎秒計算され、CSVファイルにも保存されます
+
+#### ログファイル
+
+会話中のデータは `logs/` フォルダに自動保存されます:
+- `conversation_log_*.csv` - 会話履歴
+- `h10_ecg_session_*.csv` - ECG生データ（130Hz）
+- `h10_hr_session_*.csv` - 心拍数データ
+- `h10_sdnn_session_*.csv` - SDNN時系列データ
+- `verity_hr_session_*.csv` - Verity Senseの心拍数
 
 ---
 
@@ -225,10 +264,49 @@ source .venv/bin/activate
 python3 main.py
 ```
 
-1. GUI will launch
-2. Connect Polar sensor (optional)
-3. Click "Start Conversation" button
-4. Speak and AI will respond
+#### Basic Flow
+
+1. **Launch GUI**: Opens a window with 4 tabs
+2. **Connect Sensor**: Click "Connect Sensors" to connect Polar devices
+3. **Enter Subject ID**: Input subject ID in session info (used for log filenames)
+4. **Start Conversation**: Click "Start Voice Dialogue" button
+5. **Dialogue**: Speak and AI will respond with voice
+6. **End**: Click "Stop Voice Dialogue" button
+
+#### Tab Overview
+
+| Tab | Function |
+|-----|----------|
+| **Conversation System** | Main dialogue screen with HR monitor, LLM settings, voice settings, prompt editor |
+| **Realtime Monitor** | Real-time graphs of HR, ECG, and HRV (SDNN) |
+| **ECG/HRV Analysis** | Calculate LF/HF and RMSSD from saved ECG data |
+| **Questionnaire Analysis** | Statistical analysis and graph generation for questionnaire data |
+
+#### Conversation System Settings
+
+- **Heart Rate Monitor**: Reference HR setting, Polar sensor connection
+- **Session Info**: Subject ID (used in log filenames)
+- **LLM Settings**: Switch between OpenAI API / Local LLM
+- **AI Prompt**: Edit system prompt
+- **Voice Settings**: VOICEVOX speaker, speed, pitch adjustment
+- **HRF Control**: Enable/disable heart rate feedback control, select control mode
+
+#### Realtime Monitor
+
+1. Connect sensors in "Conversation System" tab
+2. Switch to "Realtime Monitor" tab
+3. Click "Start Monitor" button
+4. Heart rate, ECG waveform, and SDNN (heart rate variability) are displayed in real-time
+5. SDNN is calculated every second from a 30-second buffer and saved to CSV
+
+#### Log Files
+
+Data during conversation is auto-saved to `logs/` folder:
+- `conversation_log_*.csv` - Conversation history
+- `h10_ecg_session_*.csv` - Raw ECG data (130Hz)
+- `h10_hr_session_*.csv` - Heart rate data
+- `h10_sdnn_session_*.csv` - SDNN time series data
+- `verity_hr_session_*.csv` - Verity Sense heart rate
 
 ---
 
@@ -241,6 +319,7 @@ HCS1/
 │   ├── __init__.py
 │   ├── application.py      # Main Application class
 │   ├── status_window.py    # Status display window
+│   ├── realtime_monitor.py # Realtime HR/ECG/SDNN monitor
 │   ├── ecg_analysis.py     # ECG/HRV analysis
 │   └── questionnaire_analysis.py
 ├── audio_processing.py     # Audio processing & TTS
@@ -281,6 +360,12 @@ MIT License
 
 ## 📝 Version History
 
+- **v6.13.1** - Scrollable conversation tab for small windows
+- **v6.13.0** - SDNN CSV logging from ECG realtime monitor
+- **v6.12.0** - ECG-based SDNN calculation with 130Hz R-peak detection
+- **v6.11.0** - Real ECG data display from H10
+- **v6.10.0** - Changed HRV display to SDNN, 130Hz sampling
+- **v6.9.0** - Realtime monitor module separation
 - **v6.8.0** - DMG/DEB package generation added to build scripts
 - **v6.7.1** - Fix PyInstaller multiprocessing issue on macOS
 - **v6.7.0** - VOICEVOX auto-start support (Mac/Ubuntu)
