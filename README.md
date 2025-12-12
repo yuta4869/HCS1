@@ -162,6 +162,61 @@ python3 main.py
 4. 心拍数、ECG波形、SDNN（心拍変動）がリアルタイム表示されます
 5. SDNNは30秒バッファで毎秒計算され、CSVファイルにも保存されます
 
+#### ECG/HRV 解析
+
+保存されたECGデータからHRV指標を計算します。
+
+**ファイル命名規則:**
+ECGファイルは以下の形式で命名してください:
+```
+{被験者ID}_{条件名}.csv
+例: S01_No.csv, S01_MRAC.csv, S02_PID.csv
+```
+
+**対応する条件名:**
+- `No` - 制御なし
+- `PID` - PID制御
+- `MRAC` - 適応制御
+- `GainSchedule` - ゲインスケジューリング制御
+
+**使い方:**
+1. 「ECG/HRV解析」タブに移動
+2. 「入力フォルダを選択」でECGファイルが入ったフォルダを選択
+3. 「出力フォルダを選択」で結果の保存先を選択
+4. 「バッチ解析 実行」をクリック
+
+**出力される解析結果:**
+- `{条件名}_result.xlsx` - 時系列のLF/HF・RMSSD（30秒スライディングウィンドウ）
+- `{条件名}_resultLFHF5min.xlsx` - 全体平均LF/HF
+- `Combined_HRV_Analysis.xlsx` - 全条件の統合結果
+- `LFHF_Boxplot.png` - LF/HFの箱ひげ図
+- `RMSSD_Boxplot.png` - RMSSDの箱ひげ図
+
+**複数被験者の統合解析:**
+1. 各被験者の解析結果フォルダを用意（例: `S01/`, `S02/`）
+2. 「被験者データフォルダを選択」で親フォルダを選択
+3. 「複数被験者の統合グラフ作成」をクリック
+4. 条件ごとの比較グラフが生成されます
+
+#### アンケート解析
+
+アンケートデータの統計解析とグラフ作成を行います。
+
+**ファイル形式:**
+Excelファイル（.xlsx）に以下の形式でデータを入力:
+- 1行目: ヘッダー（質問項目名）
+- 条件名を含む列名（例: `No_Q1`, `PID_Q1`, `MRAC_Q1`）
+
+**使い方:**
+1. 「アンケート解析」タブに移動
+2. 「アンケートファイルを選択」でExcelファイルを選択
+3. 「出力フォルダを選択」で保存先を選択
+4. 「解析 & グラフ作成」をクリック
+
+**出力されるグラフ:**
+- 条件ごとの比較棒グラフ
+- エラーバー付きの統計グラフ
+
 #### ログファイル
 
 会話中のデータは `logs/` フォルダに自動保存されます:
@@ -298,6 +353,61 @@ python3 main.py
 3. Click "Start Monitor" button
 4. Heart rate, ECG waveform, and SDNN (heart rate variability) are displayed in real-time
 5. SDNN is calculated every second from a 30-second buffer and saved to CSV
+
+#### ECG/HRV Analysis
+
+Calculate HRV indices from saved ECG data.
+
+**File Naming Convention:**
+ECG files should be named as follows:
+```
+{SubjectID}_{ConditionName}.csv
+Example: S01_No.csv, S01_MRAC.csv, S02_PID.csv
+```
+
+**Supported Condition Names:**
+- `No` - No control
+- `PID` - PID control
+- `MRAC` - Adaptive control
+- `GainSchedule` - Gain scheduling control
+
+**Usage:**
+1. Go to "ECG/HRV Analysis" tab
+2. Click "Select Input Folder" to choose folder containing ECG files
+3. Click "Select Output Folder" to choose where results will be saved
+4. Click "Run Batch Analysis"
+
+**Output Files:**
+- `{ConditionName}_result.xlsx` - Time series LF/HF & RMSSD (30-sec sliding window)
+- `{ConditionName}_resultLFHF5min.xlsx` - Overall average LF/HF
+- `Combined_HRV_Analysis.xlsx` - Combined results for all conditions
+- `LFHF_Boxplot.png` - LF/HF box plot
+- `RMSSD_Boxplot.png` - RMSSD box plot
+
+**Multi-Subject Integration:**
+1. Prepare analysis result folders for each subject (e.g., `S01/`, `S02/`)
+2. Click "Select Subject Data Folder" to choose the parent folder
+3. Click "Create Multi-Subject Integrated Graphs"
+4. Comparison graphs by condition are generated
+
+#### Questionnaire Analysis
+
+Statistical analysis and graph creation for questionnaire data.
+
+**File Format:**
+Excel file (.xlsx) with the following format:
+- Row 1: Header (question item names)
+- Column names including condition names (e.g., `No_Q1`, `PID_Q1`, `MRAC_Q1`)
+
+**Usage:**
+1. Go to "Questionnaire Analysis" tab
+2. Click "Select Questionnaire File" to choose Excel file
+3. Click "Select Output Folder" to choose save location
+4. Click "Analyze & Create Graphs"
+
+**Output Graphs:**
+- Comparison bar graphs by condition
+- Statistical graphs with error bars
 
 #### Log Files
 
