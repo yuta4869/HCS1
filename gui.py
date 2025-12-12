@@ -869,19 +869,25 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         speaker_hrf2_container = ttk.Frame(main_frame)
         speaker_hrf2_container.grid(row=row_idx, column=0, columnspan=5, sticky="ew", padx=5, pady=5)
 
-        # 話者選択フレーム（左側）
-        speaker_frame = ttk.LabelFrame(speaker_hrf2_container, text="話者選択 (VOICEVOX)", padding="10")
+        # 話者選択フレーム（左側）- コンパクトレイアウト
+        speaker_frame = ttk.LabelFrame(speaker_hrf2_container, text="話者 (VOICEVOX)", padding="5")
         speaker_frame.pack(side=tk.LEFT, fill=tk.X, expand=False, padx=(0, 5))
 
+        # 上段: コンボボックスのみ
         self.speaker_var = tk.StringVar()
-        self.speaker_combo = ttk.Combobox(speaker_frame, textvariable=self.speaker_var, state="readonly", width=30)
-        self.speaker_combo.grid(row=0, column=0, sticky="w", pady=5, padx=5)
+        self.speaker_combo = ttk.Combobox(speaker_frame, textvariable=self.speaker_var, state="readonly", width=25)
+        self.speaker_combo.pack(fill=tk.X)
         self.speaker_combo.bind("<<ComboboxSelected>>", self.on_speaker_selected)
 
-        self.speaker_status = ttk.Label(speaker_frame, text="話者: 未選択", foreground="orange", style='Status.TLabel')
-        self.speaker_status.grid(row=0, column=1, sticky=tk.W, pady=5, padx=5)
-        test_button = ttk.Button(speaker_frame, text="テスト発話", command=self.test_speech)
-        test_button.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=5, padx=5)
+        # 下段: 選択中表示 + テストボタン
+        speaker_row2 = ttk.Frame(speaker_frame)
+        speaker_row2.pack(fill=tk.X, pady=(2, 0))
+
+        self.speaker_status = ttk.Label(speaker_row2, text="未選択", foreground="orange", style='Status.TLabel')
+        self.speaker_status.pack(side=tk.LEFT)
+
+        test_button = ttk.Button(speaker_row2, text="テスト", command=self.test_speech, width=6)
+        test_button.pack(side=tk.RIGHT)
         self.populate_speaker_list()
 
         # HRF2設定フレーム（右側）
@@ -899,12 +905,12 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         )
         hrf2_checkbox.pack(side=tk.LEFT, padx=(0, 10))
 
-        # 制御モード選択（PID / Adaptive）
+        # 制御モード選択（PID / Adaptive / GainScheduled）
         ttk.Label(hrf2_row0_frame, text="制御:").pack(side=tk.LEFT, padx=(0, 2))
         self.hrf2_control_mode_var = tk.StringVar(value=self.prosody.get_hrf2_control_mode().value)
         hrf2_mode_combo = ttk.Combobox(
             hrf2_row0_frame, textvariable=self.hrf2_control_mode_var,
-            values=["PID", "Adaptive"], state="readonly", width=8
+            values=["PID", "Adaptive", "GainScheduled"], state="readonly", width=12
         )
         hrf2_mode_combo.pack(side=tk.LEFT, padx=(0, 10))
         hrf2_mode_combo.bind("<<ComboboxSelected>>", self._on_hrf2_control_mode_change)
@@ -2436,7 +2442,12 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         """HRF2制御モードの変更"""
         try:
             mode_str = self.hrf2_control_mode_var.get()
-            mode = ControlMode.PID if mode_str == "PID" else ControlMode.ADAPTIVE
+            if mode_str == "PID":
+                mode = ControlMode.PID
+            elif mode_str == "Adaptive":
+                mode = ControlMode.ADAPTIVE
+            else:  # GainScheduled
+                mode = ControlMode.GAIN_SCHEDULED
             self.prosody.set_hrf2_control_mode(mode)
             self._update_hrf2_param_frames()
             self._update_hrf2_status()
@@ -2453,21 +2464,29 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
 
         mode = self.prosody.get_hrf2_control_mode()
         if mode == ControlMode.PID:
-            # PIDフレームを強調、適応フレームを薄く
+            # PIDフレームを有効、適応フレームを無効
             for child in self.hrf2_pid_frame.winfo_children():
                 if isinstance(child, (ttk.Entry, ttk.Button)):
                     child.configure(state="normal")
             for child in self.hrf2_adaptive_frame.winfo_children():
                 if isinstance(child, (ttk.Entry, ttk.Button)):
                     child.configure(state="disabled")
-        else:
-            # 適応フレームを強調、PIDフレームを薄く
+        elif mode == ControlMode.ADAPTIVE:
+            # 適応フレームを有効、PIDフレームを無効
             for child in self.hrf2_pid_frame.winfo_children():
                 if isinstance(child, (ttk.Entry, ttk.Button)):
                     child.configure(state="disabled")
             for child in self.hrf2_adaptive_frame.winfo_children():
                 if isinstance(child, (ttk.Entry, ttk.Button)):
                     child.configure(state="normal")
+        else:  # GAIN_SCHEDULED
+            # 両フレームを無効（ゲインスケジューリングは自動調整のため）
+            for child in self.hrf2_pid_frame.winfo_children():
+                if isinstance(child, (ttk.Entry, ttk.Button)):
+                    child.configure(state="disabled")
+            for child in self.hrf2_adaptive_frame.winfo_children():
+                if isinstance(child, (ttk.Entry, ttk.Button)):
+                    child.configure(state="disabled")
 
     def _apply_hrf2_adaptive_params(self):
         """HRF2の適応制御パラメータを適用"""

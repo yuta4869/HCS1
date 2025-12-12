@@ -24,6 +24,7 @@ class ControlMode(Enum):
     """制御モードの列挙型"""
     PID = "PID"
     ADAPTIVE = "Adaptive"
+    GAIN_SCHEDULED = "GainScheduled"
 
 
 @dataclass
@@ -73,6 +74,45 @@ class AdaptiveConfig:
 
     # 正規化ゲイン（数値安定性のため）
     normalization_gain: float = 0.01
+
+
+@dataclass
+class GainScheduleConfig:
+    """
+    ゲインスケジューリング制御のパラメータ設定
+
+    誤差の大きさに応じてPIDゲインを切り替える：
+    - 大誤差: 積極的に追従（高ゲイン）
+    - 中誤差: 通常追従
+    - 小誤差: 微調整（低ゲイン）
+    """
+    # 誤差領域の閾値 (BPM)
+    error_threshold_high: float = 15.0   # これ以上は大誤差
+    error_threshold_medium: float = 7.0  # これ以上は中誤差、以下は小誤差
+
+    # 大誤差時のゲイン（積極的追従）
+    kp_high: float = 0.04
+    ki_high: float = 0.008
+    kd_high: float = 0.015
+
+    # 中誤差時のゲイン（通常追従）
+    kp_medium: float = 0.02
+    ki_medium: float = 0.005
+    kd_medium: float = 0.01
+
+    # 小誤差時のゲイン（微調整）
+    kp_low: float = 0.01
+    ki_low: float = 0.002
+    kd_low: float = 0.005
+
+    # デッドバンド（目標値付近で制御を緩める）
+    deadband: float = 2.0  # BPM
+
+    # 積分項のアンチワインドアップ
+    integral_max: float = 15.0
+
+    # ゲイン切替時の平滑化係数（0-1, 1で即時切替）
+    smoothing_factor: float = 0.3
 
 
 class AdaptiveController:
@@ -245,9 +285,186 @@ class AdaptiveController:
         print(f"Reference time constant set to {self.config.reference_time_constant}")
 
 
+class GainScheduledController:
+    """
+    ゲインスケジューリング制御コントローラー
+
+    誤差の大きさに応じてPIDゲインを動的に切り替える制御方式。
+    - 大きな誤差: 高ゲインで積極的に追従
+    - 中程度の誤差: 標準的なゲインで安定追従
+    - 小さな誤差: 低ゲインで微調整（オーバーシュート抑制）
+
+    特徴:
+    - 収束速度と安定性のバランスを自動調整
+    - ゲイン切替時の平滑化でチャタリング防止
+    """
+
+    def __init__(self, config: Optional[GainScheduleConfig] = None):
+        self.config = config or GainScheduleConfig()
+
+        # PID状態
+        self._integral: float = 0.0
+        self._last_error: Optional[float] = None
+        self._last_time: Optional[float] = None
+
+        # 現在の平滑化されたゲイン
+        self._current_kp: float = self.config.kp_medium
+        self._current_ki: float = self.config.ki_medium
+        self._current_kd: float = self.config.kd_medium
+
+        # 目標心拍数
+        self._target_hr: float = 70.0
+
+        # 現在のゲイン領域（デバッグ用）
+        self._current_zone: str = "medium"
+
+        # 最後の出力
+        self._last_output: float = 1.0
+
+    def reset(self) -> None:
+        """制御状態をリセット"""
+        self._integral = 0.0
+        self._last_error = None
+        self._last_time = None
+        self._current_kp = self.config.kp_medium
+        self._current_ki = self.config.ki_medium
+        self._current_kd = self.config.kd_medium
+        self._current_zone = "medium"
+        self._last_output = 1.0
+        print("GainScheduled Controller reset")
+
+    def set_target_hr(self, target_hr: float) -> None:
+        """目標心拍数を設定"""
+        self._target_hr = max(40.0, min(180.0, target_hr))
+
+    def get_target_hr(self) -> float:
+        return self._target_hr
+
+    def _get_target_gains(self, abs_error: float) -> Tuple[float, float, float, str]:
+        """
+        誤差の大きさに基づいて目標ゲインを決定
+
+        Returns:
+            Tuple[kp, ki, kd, zone_name]
+        """
+        if abs_error >= self.config.error_threshold_high:
+            return (self.config.kp_high, self.config.ki_high,
+                    self.config.kd_high, "high")
+        elif abs_error >= self.config.error_threshold_medium:
+            return (self.config.kp_medium, self.config.ki_medium,
+                    self.config.kd_medium, "medium")
+        else:
+            return (self.config.kp_low, self.config.ki_low,
+                    self.config.kd_low, "low")
+
+    def update(self, current_hr: float, target_hr: float,
+               min_output: float, max_output: float) -> Tuple[float, dict]:
+        """
+        ゲインスケジューリング制御による出力計算
+
+        Args:
+            current_hr: 現在の心拍数 (BPM)
+            target_hr: 目標心拍数 (BPM)
+            min_output: 出力の最小値
+            max_output: 出力の最大値
+
+        Returns:
+            Tuple[float, dict]: (抑揚レベル, デバッグ情報)
+        """
+        current_time = time.time()
+        self._target_hr = target_hr
+
+        # 誤差計算
+        error = target_hr - current_hr
+        abs_error = abs(error)
+
+        # デッドバンド処理
+        effective_error = 0.0 if abs_error < self.config.deadband else error
+
+        # 目標ゲインの決定
+        target_kp, target_ki, target_kd, zone = self._get_target_gains(abs_error)
+
+        # ゲインの平滑化（急激な切替を防ぐ）
+        alpha = self.config.smoothing_factor
+        self._current_kp += alpha * (target_kp - self._current_kp)
+        self._current_ki += alpha * (target_ki - self._current_ki)
+        self._current_kd += alpha * (target_kd - self._current_kd)
+        self._current_zone = zone
+
+        # 時間差分
+        dt = 0.0
+        if self._last_time is not None:
+            dt = current_time - self._last_time
+            if dt > 10.0 or dt <= 0:
+                dt = 0.0
+
+        # 比例項
+        p_term = self._current_kp * effective_error
+
+        # 積分項
+        if dt > 0:
+            self._integral += effective_error * dt
+            # アンチワインドアップ
+            self._integral = max(-self.config.integral_max,
+                                 min(self.config.integral_max, self._integral))
+        i_term = self._current_ki * self._integral
+
+        # 微分項
+        d_term = 0.0
+        if self._last_error is not None and dt > 0:
+            derivative = (effective_error - self._last_error) / dt
+            d_term = self._current_kd * derivative
+
+        # PID出力（ベース1.0からの調整）
+        raw_output = 1.0 + p_term + i_term + d_term
+
+        # 出力範囲にクランプ
+        output = max(min_output, min(max_output, raw_output))
+
+        # 状態更新
+        self._last_error = effective_error
+        self._last_time = current_time
+        self._last_output = output
+
+        debug_info = {
+            "control_mode": "GainScheduled",
+            "target_hr": target_hr,
+            "current_hr": current_hr,
+            "error": error,
+            "effective_error": effective_error,
+            "zone": zone,
+            "kp": self._current_kp,
+            "ki": self._current_ki,
+            "kd": self._current_kd,
+            "p_term": p_term,
+            "i_term": i_term,
+            "d_term": d_term,
+            "raw_output": raw_output,
+            "output": output,
+            "integral": self._integral
+        }
+
+        return output, debug_info
+
+    def get_current_gains(self) -> Tuple[float, float, float]:
+        """現在のゲインを取得"""
+        return self._current_kp, self._current_ki, self._current_kd
+
+    def get_current_zone(self) -> str:
+        """現在のゲイン領域を取得"""
+        return self._current_zone
+
+    def set_thresholds(self, high: float, medium: float) -> None:
+        """誤差閾値を設定"""
+        self.config.error_threshold_high = max(5.0, high)
+        self.config.error_threshold_medium = max(2.0, min(high - 1.0, medium))
+        print(f"GainSchedule thresholds: high={self.config.error_threshold_high}, "
+              f"medium={self.config.error_threshold_medium}")
+
+
 class HRF2Controller:
     """
-    HRF2 - PID制御/適応制御による心拍数追従コントローラー
+    HRF2 - PID制御/適応制御/ゲインスケジューリング制御による心拍数追従コントローラー
 
     目標心拍数に対して現在の心拍数を追従させるため、
     抑揚パラメータを制御する。
@@ -255,12 +472,15 @@ class HRF2Controller:
     制御モード:
     - PID: 従来のPID制御
     - Adaptive: MRAC（モデル規範型適応制御）
+    - GainScheduled: 誤差ベースのゲインスケジューリング
     """
 
     def __init__(self, config: Optional[HRF2Config] = None,
-                 adaptive_config: Optional[AdaptiveConfig] = None):
+                 adaptive_config: Optional[AdaptiveConfig] = None,
+                 gain_schedule_config: Optional[GainScheduleConfig] = None):
         self.config = config or HRF2Config()
         self.adaptive_config = adaptive_config or AdaptiveConfig()
+        self.gain_schedule_config = gain_schedule_config or GainScheduleConfig()
 
         # PID制御の内部状態
         self._integral: float = 0.0
@@ -269,6 +489,9 @@ class HRF2Controller:
 
         # 適応制御コントローラー
         self._adaptive_controller = AdaptiveController(self.adaptive_config)
+
+        # ゲインスケジューリングコントローラー
+        self._gain_scheduled_controller = GainScheduledController(self.gain_schedule_config)
 
         # 有効/無効フラグ
         self._enabled: bool = False
@@ -305,10 +528,11 @@ class HRF2Controller:
     def target_hr(self, value: float) -> None:
         self.config.target_hr = max(40.0, min(180.0, value))
         self._adaptive_controller.set_target_hr(self.config.target_hr)
+        self._gain_scheduled_controller.set_target_hr(self.config.target_hr)
         print(f"HRF2 target HR set to {self.config.target_hr} BPM")
 
     def reset(self) -> None:
-        """制御状態をリセット（PIDと適応制御両方）"""
+        """制御状態をリセット（全モード）"""
         # PID状態リセット
         self._integral = 0.0
         self._last_error = None
@@ -318,7 +542,11 @@ class HRF2Controller:
         # 適応制御状態リセット
         self._adaptive_controller.reset()
         self._adaptive_controller.set_target_hr(self.config.target_hr)
-        print("HRF2 Controller reset (both PID and Adaptive)")
+
+        # ゲインスケジューリング状態リセット
+        self._gain_scheduled_controller.reset()
+        self._gain_scheduled_controller.set_target_hr(self.config.target_hr)
+        print("HRF2 Controller reset (all modes)")
 
     def update(self, current_hr: float) -> Tuple[float, dict]:
         """
@@ -336,6 +564,8 @@ class HRF2Controller:
         # 制御モードに応じて処理を分岐
         if self.config.control_mode == ControlMode.ADAPTIVE:
             return self._update_adaptive(current_hr)
+        elif self.config.control_mode == ControlMode.GAIN_SCHEDULED:
+            return self._update_gain_scheduled(current_hr)
         else:
             return self._update_pid(current_hr)
 
@@ -416,6 +646,18 @@ class HRF2Controller:
         debug_info["enabled"] = True
         return output, debug_info
 
+    def _update_gain_scheduled(self, current_hr: float) -> Tuple[float, dict]:
+        """ゲインスケジューリング制御による出力計算"""
+        output, debug_info = self._gain_scheduled_controller.update(
+            current_hr,
+            self.config.target_hr,
+            self.config.min_output,
+            self.config.max_output
+        )
+        self._last_output = output
+        debug_info["enabled"] = True
+        return output, debug_info
+
     def get_status_text(self, current_hr: float) -> str:
         """現在の状態をテキストで返す"""
         if not self._enabled:
@@ -430,6 +672,12 @@ class HRF2Controller:
             return (f"HRF2({mode_str}): 目標{self.config.target_hr:.0f}BPM "
                     f"現在{current_hr:.0f}BPM {direction} "
                     f"θ={theta:.4f} 抑揚{self._last_output:.2f}")
+        elif self.config.control_mode == ControlMode.GAIN_SCHEDULED:
+            zone = self._gain_scheduled_controller.get_current_zone()
+            kp, ki, kd = self._gain_scheduled_controller.get_current_gains()
+            return (f"HRF2({mode_str}): 目標{self.config.target_hr:.0f}BPM "
+                    f"現在{current_hr:.0f}BPM {direction} "
+                    f"zone={zone} Kp={kp:.3f} 抑揚{self._last_output:.2f}")
         else:
             return (f"HRF2({mode_str}): 目標{self.config.target_hr:.0f}BPM "
                     f"現在{current_hr:.0f}BPM {direction} "
@@ -460,3 +708,19 @@ class HRF2Controller:
         self.config.min_output = max(0.0, min(3.0, min_output))
         self.config.max_output = max(0.0, min(3.0, max_output))
         print(f"HRF2 output range: {self.config.min_output} - {self.config.max_output}")
+
+    def set_gain_schedule_thresholds(self, high: float, medium: float) -> None:
+        """ゲインスケジューリングの閾値を設定"""
+        self._gain_scheduled_controller.set_thresholds(high, medium)
+
+    def get_gain_schedule_config(self) -> GainScheduleConfig:
+        """ゲインスケジューリング設定を取得"""
+        return self._gain_scheduled_controller.config
+
+    def get_gain_schedule_zone(self) -> str:
+        """現在のゲイン領域を取得"""
+        return self._gain_scheduled_controller.get_current_zone()
+
+    def get_gain_schedule_gains(self) -> Tuple[float, float, float]:
+        """現在のゲインスケジューリングゲインを取得"""
+        return self._gain_scheduled_controller.get_current_gains()
