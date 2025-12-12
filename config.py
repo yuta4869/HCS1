@@ -54,7 +54,8 @@ def _detect_gpu_backend():
 GPU_BACKEND, _DEFAULT_GPU_LAYERS = _detect_gpu_backend()
 
 # --- General Configuration ---
-# Whisper設定: CUDA/MPS/CPUに応じて自動選択
+# Whisper設定: CUDA/CPUに応じて自動選択
+# 注意: faster-whisperはCUDAのみGPU対応、MPSは非対応
 def _detect_whisper_settings():
     """GPU利用可能かどうかで最適なWhisper設定を返す"""
     try:
@@ -62,11 +63,9 @@ def _detect_whisper_settings():
         if torch.cuda.is_available():
             # CUDA: より大きなモデルと高精度な計算
             return "small", "float16"
-        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            # MPS (Apple Silicon): float16対応
-            return "small", "float16"
         else:
-            # CPU: 軽量モデルと量子化
+            # CPU/MPS: faster-whisperはMPS非対応なのでCPU設定
+            # int8はCPUで高速、float32は互換性が高い
             return "base", "int8"
     except ImportError:
         # torchがない場合はCPU設定
