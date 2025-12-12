@@ -34,7 +34,7 @@ from logger_utils import LoggingThread, get_timestamped_log_path, format_subject
 from polar_monitor import HeartRateMonitor, H10Monitor
 from conversation_manager import ConversationManager
 from audio_processing import ProsodySettings, SpeakerSettings, AudioProcessor, VoicevoxManager
-from hrf2_controller import ControlMode
+from hrf2_controller import ControlMode, GainType
 from video_recorder import VideoRecorder
 from audio_device_utils import get_conversation_mic_device, get_secondary_mic_device
 
@@ -988,6 +988,28 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
         ttk.Label(self.hrf2_gainschedule_frame, text="zone:").pack(side=tk.LEFT)
         self.hrf2_gs_zone_label = ttk.Label(self.hrf2_gainschedule_frame, text="---", width=6)
         self.hrf2_gs_zone_label.pack(side=tk.LEFT)
+
+        # ゲインタイプ選択
+        ttk.Label(self.hrf2_gainschedule_frame, text=" | 高:").pack(side=tk.LEFT)
+        gain_types = ["P", "PI", "PD", "PID"]
+        self.hrf2_gs_type_high_var = tk.StringVar(value=gs_config.gain_type_high.value)
+        ttk.Combobox(self.hrf2_gainschedule_frame, textvariable=self.hrf2_gs_type_high_var,
+                     values=gain_types, width=4, state="readonly").pack(side=tk.LEFT)
+
+        ttk.Label(self.hrf2_gainschedule_frame, text="中:").pack(side=tk.LEFT)
+        self.hrf2_gs_type_med_var = tk.StringVar(value=gs_config.gain_type_medium.value)
+        ttk.Combobox(self.hrf2_gainschedule_frame, textvariable=self.hrf2_gs_type_med_var,
+                     values=gain_types, width=4, state="readonly").pack(side=tk.LEFT)
+
+        ttk.Label(self.hrf2_gainschedule_frame, text="低:").pack(side=tk.LEFT)
+        self.hrf2_gs_type_low_var = tk.StringVar(value=gs_config.gain_type_low.value)
+        ttk.Combobox(self.hrf2_gainschedule_frame, textvariable=self.hrf2_gs_type_low_var,
+                     values=gain_types, width=4, state="readonly").pack(side=tk.LEFT)
+
+        # 現在のゲインタイプ表示
+        ttk.Label(self.hrf2_gainschedule_frame, text="type:").pack(side=tk.LEFT, padx=(5, 0))
+        self.hrf2_gs_type_label = ttk.Label(self.hrf2_gainschedule_frame, text="---", width=4)
+        self.hrf2_gs_type_label.pack(side=tk.LEFT)
 
         # 初期表示の切り替え
         self._update_hrf2_param_frames()
@@ -2453,6 +2475,15 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
                     # θラベルも更新
                     if hasattr(self, 'hrf2_theta_label'):
                         self.hrf2_theta_label.config(text=f"{theta:.4f}")
+                elif mode == "GainScheduled":
+                    zone = self.prosody.get_hrf2_gain_schedule_zone()
+                    gain_type = self.prosody.get_hrf2_gain_schedule_gain_type()
+                    status_text = f"HRF2({mode}): 目標{target:.0f}BPM / 現在{current_hr}BPM / {zone}({gain_type})"
+                    # ゾーンとタイプラベルを更新
+                    if hasattr(self, 'hrf2_gs_zone_label'):
+                        self.hrf2_gs_zone_label.config(text=zone)
+                    if hasattr(self, 'hrf2_gs_type_label'):
+                        self.hrf2_gs_type_label.config(text=gain_type)
                 else:
                     status_text = f"HRF2({mode}): 目標{target:.0f}BPM / 現在{current_hr}BPM"
             else:
@@ -2527,11 +2558,18 @@ class Application(tk.Toplevel): # Changed from tk.Tk to tk.Toplevel
             high = self.hrf2_gs_high_var.get()
             med = self.hrf2_gs_med_var.get()
             self.prosody.set_hrf2_gain_schedule_thresholds(high, med)
-            self.set_status(f"GS閾値適用: 高={high}, 中={med}", "blue")
-            self._log_to_console(f"GSパラメータ: 高閾値={high}, 中閾値={med}")
+
+            # ゲインタイプを適用
+            type_high = GainType(self.hrf2_gs_type_high_var.get())
+            type_med = GainType(self.hrf2_gs_type_med_var.get())
+            type_low = GainType(self.hrf2_gs_type_low_var.get())
+            self.prosody.set_hrf2_gain_schedule_types(type_high, type_med, type_low)
+
+            self.set_status(f"GS適用: 閾値(高={high},中={med}) タイプ(高={type_high.value},中={type_med.value},低={type_low.value})", "blue")
+            self._log_to_console(f"GSパラメータ: 高閾値={high}, 中閾値={med}, タイプ(高={type_high.value},中={type_med.value},低={type_low.value})")
         except Exception as e:
             print(f"HRF2 GS params error: {e}")
-            self.set_status("GS閾値設定エラー", "red")
+            self.set_status("GS設定エラー", "red")
 
     def on_speaker_selected(self, event=None):
         try:

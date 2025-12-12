@@ -76,6 +76,14 @@ class AdaptiveConfig:
     normalization_gain: float = 0.01
 
 
+class GainType(Enum):
+    """ゲインの種類"""
+    P = "P"      # 比例のみ
+    PI = "PI"    # 比例 + 積分
+    PD = "PD"    # 比例 + 微分
+    PID = "PID"  # 比例 + 積分 + 微分
+
+
 @dataclass
 class GainScheduleConfig:
     """
@@ -94,16 +102,19 @@ class GainScheduleConfig:
     kp_high: float = 0.04
     ki_high: float = 0.008
     kd_high: float = 0.015
+    gain_type_high: GainType = GainType.PID
 
     # 中誤差時のゲイン（通常追従）
     kp_medium: float = 0.02
     ki_medium: float = 0.005
     kd_medium: float = 0.01
+    gain_type_medium: GainType = GainType.PI
 
     # 小誤差時のゲイン（微調整）
     kp_low: float = 0.01
     ki_low: float = 0.002
     kd_low: float = 0.005
+    gain_type_low: GainType = GainType.P
 
     # デッドバンド（目標値付近で制御を緩める）
     deadband: float = 2.0  # BPM
@@ -317,6 +328,7 @@ class GainScheduledController:
 
         # 現在のゲイン領域（デバッグ用）
         self._current_zone: str = "medium"
+        self._current_gain_type: GainType = self.config.gain_type_medium
 
         # 最後の出力
         self._last_output: float = 1.0
@@ -330,6 +342,7 @@ class GainScheduledController:
         self._current_ki = self.config.ki_medium
         self._current_kd = self.config.kd_medium
         self._current_zone = "medium"
+        self._current_gain_type = self.config.gain_type_medium
         self._last_output = 1.0
         print("GainScheduled Controller reset")
 
@@ -340,22 +353,31 @@ class GainScheduledController:
     def get_target_hr(self) -> float:
         return self._target_hr
 
-    def _get_target_gains(self, abs_error: float) -> Tuple[float, float, float, str]:
+    def _get_target_gains(self, abs_error: float) -> Tuple[float, float, float, str, GainType]:
         """
         誤差の大きさに基づいて目標ゲインを決定
 
         Returns:
-            Tuple[kp, ki, kd, zone_name]
+            Tuple[kp, ki, kd, zone_name, gain_type]
         """
         if abs_error >= self.config.error_threshold_high:
-            return (self.config.kp_high, self.config.ki_high,
-                    self.config.kd_high, "high")
+            gt = self.config.gain_type_high
+            kp = self.config.kp_high
+            ki = self.config.ki_high if gt in (GainType.PI, GainType.PID) else 0.0
+            kd = self.config.kd_high if gt in (GainType.PD, GainType.PID) else 0.0
+            return (kp, ki, kd, "high", gt)
         elif abs_error >= self.config.error_threshold_medium:
-            return (self.config.kp_medium, self.config.ki_medium,
-                    self.config.kd_medium, "medium")
+            gt = self.config.gain_type_medium
+            kp = self.config.kp_medium
+            ki = self.config.ki_medium if gt in (GainType.PI, GainType.PID) else 0.0
+            kd = self.config.kd_medium if gt in (GainType.PD, GainType.PID) else 0.0
+            return (kp, ki, kd, "medium", gt)
         else:
-            return (self.config.kp_low, self.config.ki_low,
-                    self.config.kd_low, "low")
+            gt = self.config.gain_type_low
+            kp = self.config.kp_low
+            ki = self.config.ki_low if gt in (GainType.PI, GainType.PID) else 0.0
+            kd = self.config.kd_low if gt in (GainType.PD, GainType.PID) else 0.0
+            return (kp, ki, kd, "low", gt)
 
     def update(self, current_hr: float, target_hr: float,
                min_output: float, max_output: float) -> Tuple[float, dict]:
@@ -382,7 +404,7 @@ class GainScheduledController:
         effective_error = 0.0 if abs_error < self.config.deadband else error
 
         # 目標ゲインの決定
-        target_kp, target_ki, target_kd, zone = self._get_target_gains(abs_error)
+        target_kp, target_ki, target_kd, zone, gain_type = self._get_target_gains(abs_error)
 
         # ゲインの平滑化（急激な切替を防ぐ）
         alpha = self.config.smoothing_factor
@@ -390,6 +412,7 @@ class GainScheduledController:
         self._current_ki += alpha * (target_ki - self._current_ki)
         self._current_kd += alpha * (target_kd - self._current_kd)
         self._current_zone = zone
+        self._current_gain_type = gain_type
 
         # 時間差分
         dt = 0.0
@@ -433,6 +456,7 @@ class GainScheduledController:
             "error": error,
             "effective_error": effective_error,
             "zone": zone,
+            "gain_type": gain_type.value,
             "kp": self._current_kp,
             "ki": self._current_ki,
             "kd": self._current_kd,
@@ -454,12 +478,23 @@ class GainScheduledController:
         """現在のゲイン領域を取得"""
         return self._current_zone
 
+    def get_current_gain_type(self) -> GainType:
+        """現在のゲインタイプを取得"""
+        return self._current_gain_type
+
     def set_thresholds(self, high: float, medium: float) -> None:
         """誤差閾値を設定"""
         self.config.error_threshold_high = max(5.0, high)
         self.config.error_threshold_medium = max(2.0, min(high - 1.0, medium))
         print(f"GainSchedule thresholds: high={self.config.error_threshold_high}, "
               f"medium={self.config.error_threshold_medium}")
+
+    def set_gain_types(self, high: GainType, medium: GainType, low: GainType) -> None:
+        """各ゾーンのゲインタイプを設定"""
+        self.config.gain_type_high = high
+        self.config.gain_type_medium = medium
+        self.config.gain_type_low = low
+        print(f"GainSchedule types: high={high.value}, medium={medium.value}, low={low.value}")
 
 
 class HRF2Controller:
@@ -724,3 +759,11 @@ class HRF2Controller:
     def get_gain_schedule_gains(self) -> Tuple[float, float, float]:
         """現在のゲインスケジューリングゲインを取得"""
         return self._gain_scheduled_controller.get_current_gains()
+
+    def set_gain_schedule_types(self, high: GainType, medium: GainType, low: GainType) -> None:
+        """ゲインスケジューリングの各ゾーンのゲインタイプを設定"""
+        self._gain_scheduled_controller.set_gain_types(high, medium, low)
+
+    def get_gain_schedule_gain_type(self) -> GainType:
+        """現在のゲインタイプを取得"""
+        return self._gain_scheduled_controller.get_current_gain_type()

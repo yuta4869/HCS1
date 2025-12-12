@@ -18,7 +18,7 @@ import soundfile as sf
 import tkinter as tk
 
 from faster_whisper import WhisperModel
-from hrf2_controller import HRF2Controller, HRF2Config, ControlMode, AdaptiveConfig
+from hrf2_controller import HRF2Controller, HRF2Config, ControlMode, AdaptiveConfig, GainType
 
 import config
 
@@ -305,6 +305,15 @@ class ProsodySettings:
     def get_hrf2_gain_schedule_zone(self) -> str:
         """HRF2の現在のゲイン領域を取得"""
         return self.hrf2_controller.get_gain_schedule_zone()
+
+    def set_hrf2_gain_schedule_types(self, high: GainType, medium: GainType, low: GainType) -> None:
+        """HRF2のゲインスケジューリングのゲイン種類を設定"""
+        self.hrf2_controller.set_gain_schedule_types(high, medium, low)
+
+    def get_hrf2_gain_schedule_gain_type(self) -> str:
+        """HRF2の現在使用中のゲイン種類を取得"""
+        gain_type = self.hrf2_controller.get_gain_schedule_gain_type()
+        return gain_type.value if gain_type else "---"
 
 
 class VoicevoxManager:
