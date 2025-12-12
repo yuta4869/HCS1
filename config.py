@@ -116,6 +116,7 @@ HEARTRATE_AT_RECORDING_START_CSV_TEMPLATE = os.path.join(LOG_DIR, "heartrate_at_
 VERITY_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "verity_hr_session_{subject_id}_{session_timestamp}_{mode}.csv")
 H10_ECG_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_ecg_session_{subject_id}_{session_timestamp}_{mode}.csv")
 H10_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_hr_session_{subject_id}_{session_timestamp}_{mode}.csv")
+H10_SDNN_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_sdnn_session_{subject_id}_{session_timestamp}_{mode}.csv")
 INTERACTION_EVENT_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "interaction_events_{subject_id}_{session_timestamp}_{mode}.csv")
 
 # --- API and Service URLs ---
@@ -210,5 +211,6 @@ LOGGER_HR_AT_RECORDING_START = "hr_at_recording_start"
 LOGGER_VERITY_HR_SESSION = "verity_hr_session"
 LOGGER_H10_ECG_SESSION = "h10_ecg_session"
 LOGGER_H10_HR_SESSION = "h10_hr_session"
+LOGGER_H10_SDNN_SESSION = "h10_sdnn_session"
 LOGGER_CONVERSATION_CSV = "conversation_csv"
 LOGGER_INTERACTION_EVENTS = "interaction_events"

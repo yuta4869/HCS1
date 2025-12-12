@@ -7,12 +7,17 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import time
+import datetime
+import csv
+import os
 from typing import List, Optional, Tuple, TYPE_CHECKING
 
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+import config
 
 if TYPE_CHECKING:
     from polar_monitor import PolarVeritySenseMonitor, PolarH10Monitor
@@ -127,6 +132,10 @@ class RealtimeMonitorMixin:
         self.last_hrv_update_time: Optional[float] = None
         # R波検出用の状態
         self.last_r_peak_time: Optional[float] = None  # 最後に検出したR波の時刻（秒）
+        # SDNN CSV保存用
+        self.sdnn_csv_filepath: Optional[str] = None
+        self.sdnn_csv_file = None
+        self.sdnn_csv_writer = None
 
     def _toggle_realtime_monitor(self) -> None:
         """リアルタイムモニターの開始/停止を切り替え"""
@@ -166,13 +175,64 @@ class RealtimeMonitorMixin:
 
         self.monitor_canvas.draw()
 
+        # SDNN CSV初期化
+        self._init_sdnn_csv()
+
         # 更新ループ開始
         self._update_realtime_monitor()
+
+    def _init_sdnn_csv(self) -> None:
+        """SDNN CSV保存用ファイルを初期化"""
+        try:
+            # ログディレクトリ確認
+            os.makedirs(config.LOG_DIR, exist_ok=True)
+
+            # subject_idを取得（Applicationクラスから）
+            subject_id = getattr(self, 'subject_id_entry', None)
+            if subject_id:
+                subject_id = subject_id.get().strip() or "unknown"
+            else:
+                subject_id = "unknown"
+
+            # タイムスタンプ
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # ファイルパス生成
+            self.sdnn_csv_filepath = config.H10_SDNN_SESSION_CSV_TEMPLATE.format(
+                subject_id=subject_id,
+                session_timestamp=timestamp,
+                mode="monitor"
+            )
+
+            # CSVファイルを開く
+            self.sdnn_csv_file = open(self.sdnn_csv_filepath, 'w', newline='', encoding='utf-8')
+            self.sdnn_csv_writer = csv.writer(self.sdnn_csv_file)
+            self.sdnn_csv_writer.writerow(["Timestamp", "Elapsed (sec)", "SDNN (ms)", "RR Count"])
+            print(f"SDNN CSV log ready: {self.sdnn_csv_filepath}")
+        except Exception as e:
+            print(f"Failed to initialize SDNN CSV: {e}")
+            self.sdnn_csv_filepath = None
+            self.sdnn_csv_file = None
+            self.sdnn_csv_writer = None
+
+    def _close_sdnn_csv(self) -> None:
+        """SDNN CSVファイルを閉じる"""
+        if self.sdnn_csv_file:
+            try:
+                self.sdnn_csv_file.close()
+                print(f"SDNN CSV log closed: {self.sdnn_csv_filepath}")
+            except Exception as e:
+                print(f"Error closing SDNN CSV: {e}")
+            finally:
+                self.sdnn_csv_file = None
+                self.sdnn_csv_writer = None
+                self.sdnn_csv_filepath = None
 
     def _stop_realtime_monitor(self) -> None:
         """リアルタイムモニターを停止"""
         self.monitor_running = False
         self.monitor_start_btn.config(text="モニター開始")
+        self._close_sdnn_csv()
 
     def _detect_r_peaks_realtime(self, ecg_data: List[float], elapsed: float, sample_rate: int = 130) -> None:
         """ECGデータからR波ピークをリアルタイム検出し、RR間隔をバッファに追加"""
@@ -269,6 +329,12 @@ class RealtimeMonitorMixin:
                 self.hrv_times.append(elapsed)
                 self.hrv_values.append(sdnn)
                 self.current_hrv_label.config(text=f"HRV(SDNN): {sdnn:.1f} ms")
+
+                # CSVに保存
+                if self.sdnn_csv_writer:
+                    timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+                    self.sdnn_csv_writer.writerow([timestamp_str, f"{elapsed:.2f}", f"{sdnn:.2f}", len(rr_values)])
+                    self.sdnn_csv_file.flush()
 
         # 古いデータを削除（表示ウィンドウ外）
         min_time = elapsed - window_size
