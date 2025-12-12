@@ -123,8 +123,8 @@ VOICEVOX_URL = "http://localhost:50021"
 
 # --- LLM API Settings ---
 # ローカルLLM使用時は USE_LOCAL_LLM = True に設定
-# デフォルトは False (OpenAI API を使用)
-USE_LOCAL_LLM = False
+# デフォルトは True (ローカルLLM を使用)
+USE_LOCAL_LLM = True
 
 # ローカルLLM設定 (llama.cpp, Ollama, LM Studio など)
 LOCAL_LLM_BASE_URL = "http://localhost:8080/v1"  # llama.cpp server
