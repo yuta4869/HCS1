@@ -247,11 +247,11 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         self.baseline_duration_spinbox.grid(row=1, column=1, sticky=tk.W, pady=2, padx=5)
         ttk.Label(hr_frame, text="秒").grid(row=1, column=2, sticky=tk.W, pady=2, padx=0)
         
-        self.measure_baseline_button = ttk.Button(hr_frame, text="基準HR 計測 (Verity)", command=self.measure_baseline_hr, width=18)
-        self.measure_baseline_button.grid(row=1, column=3, padx=(10,5), pady=2, sticky=tk.EW)
+        self.measure_baseline_button = ttk.Button(hr_frame, text="基準HR計測(Verity)", command=self.measure_baseline_hr, width=14)
+        self.measure_baseline_button.grid(row=1, column=3, padx=(10,5), pady=2, sticky=tk.W)
 
-        self.connect_button = ttk.Button(hr_frame, text="センサー類 接続", command=self.connect_devices, width=15)
-        self.connect_button.grid(row=0, column=4, rowspan=2, padx=5, pady=5, sticky="nsew")
+        self.connect_button = ttk.Button(hr_frame, text="センサー類 接続", command=self.connect_devices, width=12)
+        self.connect_button.grid(row=0, column=4, rowspan=2, padx=5, pady=5, sticky=tk.W)
 
         self.hr_label = ttk.Label(hr_frame, text="Verity Sense: -- BPM | H10: -- BPM", style='Bold.TLabel')
         self.hr_label.grid(row=2, column=0, columnspan=5, pady=(10,2), padx=5, sticky=tk.W)
@@ -270,7 +270,7 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         session_frame.columnconfigure(1, weight=0)
 
         ttk.Label(session_frame, text="被験者番号:").grid(row=0, column=0, sticky=tk.W, pady=2, padx=5)
-        self.subject_entry = ttk.Entry(session_frame, textvariable=self.subject_id_var, width=12)
+        self.subject_entry = ttk.Entry(session_frame, textvariable=self.subject_id_var, width=10)
         self.subject_entry.grid(row=0, column=1, sticky=tk.W, pady=2, padx=5)
         ttk.Label(session_frame, text="(半角英数字/-/_)").grid(row=0, column=2, sticky=tk.W, pady=2, padx=5)
         self.subject_hint_label = ttk.Label(session_frame, text="番号未設定", foreground="red", style='Status.TLabel')

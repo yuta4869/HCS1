@@ -7,7 +7,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import time
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional, Tuple, TYPE_CHECKING
 
 import matplotlib
 matplotlib.use('TkAgg')
@@ -62,7 +62,7 @@ class RealtimeMonitorMixin:
         self.current_hr_label.pack(side=tk.LEFT, padx=(30, 10))
 
         self.current_hrv_label = ttk.Label(
-            control_frame, text="HRV: -- ms",
+            control_frame, text="HRV(SDNN): -- ms",
             font=('Helvetica', 12)
         )
         self.current_hrv_label.pack(side=tk.LEFT, padx=10)
@@ -97,7 +97,7 @@ class RealtimeMonitorMixin:
         self.ecg_ax.legend(loc='upper right')
 
         # HRVグラフ設定 (SDNN: RR間隔の標準偏差)
-        self.hrv_ax.set_title("心拍変動 (HRV - SDNN)", fontsize=12)
+        self.hrv_ax.set_title("心拍変動 (HRV - SDNN from ECG)", fontsize=12)
         self.hrv_ax.set_ylabel("ms")
         self.hrv_ax.set_xlabel("時間 (秒)")
         self.hrv_ax.grid(True, alpha=0.3)
@@ -120,9 +120,13 @@ class RealtimeMonitorMixin:
         self.ecg_values: List[float] = []
         self.hrv_times: List[float] = []
         self.hrv_values: List[float] = []
-        self.rr_intervals: List[float] = []  # HRV計算用RR間隔バッファ
+        # ECGからのRR間隔検出用（130Hzリアルタイム検出）
+        self.rr_intervals_from_ecg: List[Tuple[float, float]] = []  # (timestamp, rr_ms)
         self.monitor_start_time: Optional[float] = None
         self.last_hr_time: Optional[float] = None
+        self.last_hrv_update_time: Optional[float] = None
+        # R波検出用の状態
+        self.last_r_peak_time: Optional[float] = None  # 最後に検出したR波の時刻（秒）
 
     def _toggle_realtime_monitor(self) -> None:
         """リアルタイムモニターの開始/停止を切り替え"""
@@ -146,10 +150,20 @@ class RealtimeMonitorMixin:
         self._init_monitor_data_buffers()
         self.monitor_start_time = time.time()
 
-        # グラフクリア
+        # グラフクリア＆初期範囲設定
         self.hr_line.set_data([], [])
         self.ecg_line.set_data([], [])
         self.hrv_line.set_data([], [])
+
+        # 初期X軸範囲を0から設定
+        window_size = self.monitor_window_var.get()
+        self.hr_ax.set_xlim(0, window_size)
+        self.hr_ax.set_ylim(50, 120)
+        self.ecg_ax.set_xlim(0, 5)
+        self.ecg_ax.set_ylim(-500, 500)
+        self.hrv_ax.set_xlim(0, window_size)
+        self.hrv_ax.set_ylim(0, 100)
+
         self.monitor_canvas.draw()
 
         # 更新ループ開始
@@ -159,6 +173,41 @@ class RealtimeMonitorMixin:
         """リアルタイムモニターを停止"""
         self.monitor_running = False
         self.monitor_start_btn.config(text="モニター開始")
+
+    def _detect_r_peaks_realtime(self, ecg_data: List[float], elapsed: float, sample_rate: int = 130) -> None:
+        """ECGデータからR波ピークをリアルタイム検出し、RR間隔をバッファに追加"""
+        if len(ecg_data) < sample_rate // 2:  # 最低0.5秒分のデータが必要
+            return
+
+        # 動的閾値: データの標準偏差を使用
+        mean_val = sum(ecg_data) / len(ecg_data)
+        std_val = (sum((x - mean_val) ** 2 for x in ecg_data) / len(ecg_data)) ** 0.5
+
+        # R波は正の方向（上向き）に大きいピーク
+        # 閾値を平均から1.5標準偏差上に設定
+        threshold = mean_val + 1.5 * std_val
+
+        min_rr_sec = 0.3  # 最小RR間隔 300ms（200 bpm相当）
+        num_samples = len(ecg_data)
+
+        # R波検出（正のピーク）
+        for i in range(1, num_samples - 1):
+            if ecg_data[i] > threshold:
+                if ecg_data[i] > ecg_data[i-1] and ecg_data[i] > ecg_data[i+1]:
+                    # このピークの絶対時刻を計算
+                    peak_time = elapsed - (num_samples - i - 1) / sample_rate
+
+                    # 最小距離をチェック（時刻ベース）
+                    if self.last_r_peak_time is None or (peak_time - self.last_r_peak_time) >= min_rr_sec:
+                        # RR間隔を計算
+                        if self.last_r_peak_time is not None:
+                            rr_ms = (peak_time - self.last_r_peak_time) * 1000  # msに変換
+
+                            # 妥当なRR間隔のみ追加（300ms-2000ms = 30-200 bpm）
+                            if 300 <= rr_ms <= 2000:
+                                self.rr_intervals_from_ecg.append((peak_time, rr_ms))
+
+                        self.last_r_peak_time = peak_time
 
     def _update_realtime_monitor(self) -> None:
         """リアルタイムモニターのデータ更新"""
@@ -177,42 +226,53 @@ class RealtimeMonitorMixin:
             hr_value = self.h10_monitor.get_current_rr()
 
         if hr_value > 0:
-            self.hr_times.append(elapsed)
-            self.hr_values.append(hr_value)
+            # 前回と同じ時間でなければ追加
+            if not self.hr_times or elapsed - self.hr_times[-1] >= 0.5:
+                self.hr_times.append(elapsed)
+                self.hr_values.append(hr_value)
             self.current_hr_label.config(text=f"心拍数: {hr_value} bpm")
-
-            # HRからRR間隔を計算 (RR = 60000 / HR ms)
-            rr_interval = 60000.0 / hr_value
-            self.rr_intervals.append(rr_interval)
-            self.last_hr_time = current_time
 
         # ECGデータ取得 (H10のみ) - 実データをバッファから取得
         if self.h10_monitor.is_connected:
             ecg_data = self.h10_monitor.get_ecg_buffer()
             if ecg_data:
-                # バッファ全体を使用（直近5秒分）
                 ecg_sample_rate = 130  # Hz
                 num_samples = len(ecg_data)
+
                 # 時間軸を生成（現在時刻から逆算）
                 self.ecg_times = [elapsed - (num_samples - i - 1) / ecg_sample_rate for i in range(num_samples)]
                 self.ecg_values = ecg_data
 
-        # HRV (SDNN) 計算: RR間隔の標準偏差
-        if len(self.rr_intervals) >= 2:
-            # 直近30拍分のRR間隔でSDNN計算
-            recent_rr = self.rr_intervals[-30:]
-            if len(recent_rr) >= 2:
-                mean_rr = sum(recent_rr) / len(recent_rr)
-                squared_diffs = [(rr - mean_rr) ** 2 for rr in recent_rr]
+                # 130HzでリアルタイムR波検出
+                self._detect_r_peaks_realtime(ecg_data, elapsed, ecg_sample_rate)
+
+        # HRV (SDNN) 計算: 1秒ごとに更新、30秒バッファ
+        if self.last_hrv_update_time is None or (current_time - self.last_hrv_update_time) >= 1.0:
+            self.last_hrv_update_time = current_time
+
+            # 30秒以内のRR間隔を取得
+            rr_buffer_duration = 30.0  # 30秒
+            cutoff_time = elapsed - rr_buffer_duration
+
+            # 古いRR間隔を削除
+            self.rr_intervals_from_ecg = [
+                (t, rr) for t, rr in self.rr_intervals_from_ecg if t > cutoff_time
+            ]
+
+            # SDNNを計算
+            if len(self.rr_intervals_from_ecg) >= 2:
+                rr_values = [rr for _, rr in self.rr_intervals_from_ecg]
+                mean_rr = sum(rr_values) / len(rr_values)
+                squared_diffs = [(rr - mean_rr) ** 2 for rr in rr_values]
                 sdnn = (sum(squared_diffs) / len(squared_diffs)) ** 0.5
+
                 self.hrv_times.append(elapsed)
                 self.hrv_values.append(sdnn)
-                self.current_hrv_label.config(text=f"HRV: {sdnn:.1f} ms")
+                self.current_hrv_label.config(text=f"HRV(SDNN): {sdnn:.1f} ms")
 
         # 古いデータを削除（表示ウィンドウ外）
         min_time = elapsed - window_size
         self._trim_buffer(self.hr_times, self.hr_values, min_time)
-        self._trim_buffer(self.ecg_times, self.ecg_values, min_time)
         self._trim_buffer(self.hrv_times, self.hrv_values, min_time)
 
         # グラフ更新
