@@ -196,6 +196,178 @@ def stop_local_llm_server():
 
 # アプリケーション終了時にLLMサーバーも停止
 atexit.register(stop_local_llm_server)
+
+# グローバル変数: VOICEVOXプロセス/コンテナ
+_voicevox_process = None
+_voicevox_docker_started = False
+
+def start_voicevox():
+    """VOICEVOXを自動起動する（Mac: .app, Ubuntu: Docker）"""
+    global _voicevox_process, _voicevox_docker_started
+
+    if not config.VOICEVOX_AUTO_START:
+        return True
+
+    # 既にサーバーが起動しているかチェック
+    try:
+        response = requests.get(f"{config.VOICEVOX_URL}/version", timeout=2)
+        if response.status_code == 200:
+            print("VOICEVOXサーバーは既に起動しています。")
+            return True
+    except requests.exceptions.RequestException:
+        pass  # サーバーが起動していない場合
+
+    # macOSの場合: .appを起動
+    if sys.platform == 'darwin':
+        return _start_voicevox_mac()
+    # Linuxの場合: Dockerコンテナを起動
+    elif sys.platform.startswith('linux'):
+        return _start_voicevox_docker()
+    else:
+        print(f"警告: {sys.platform} でのVOICEVOX自動起動は未対応です。")
+        return False
+
+def _start_voicevox_mac():
+    """macOS: VOICEVOX.appを起動"""
+    global _voicevox_process
+
+    app_path = config.VOICEVOX_MAC_APP_PATH
+
+    if not os.path.exists(app_path):
+        print(f"警告: VOICEVOXアプリが見つかりません: {app_path}")
+        print("  手動でVOICEVOXを起動してください。")
+        return False
+
+    print(f"VOICEVOXを起動中... ({app_path})")
+
+    try:
+        # open コマンドでアプリを起動（バックグラウンド）
+        _voicevox_process = subprocess.Popen(
+            ['open', '-a', app_path],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        # サーバーが起動するまで待機
+        print("  VOICEVOXサーバーの起動を待機中...")
+        max_wait = 30  # 最大30秒待機
+        for i in range(max_wait):
+            try:
+                response = requests.get(f"{config.VOICEVOX_URL}/version", timeout=2)
+                if response.status_code == 200:
+                    version = response.json() if response.text else "unknown"
+                    print(f"VOICEVOXサーバーが起動しました (version: {version})")
+                    return True
+            except requests.exceptions.RequestException:
+                pass
+
+            time.sleep(1)
+            if (i + 1) % 10 == 0:
+                print(f"  まだ待機中... ({i + 1}秒)")
+
+        print("警告: VOICEVOXサーバーの起動がタイムアウトしました。")
+        return False
+
+    except Exception as e:
+        print(f"エラー: VOICEVOXの起動に失敗しました: {e}")
+        return False
+
+def _start_voicevox_docker():
+    """Ubuntu: Docker コンテナを起動"""
+    global _voicevox_docker_started
+
+    # Dockerがインストールされているか確認
+    try:
+        result = subprocess.run(['docker', '--version'], capture_output=True, text=True)
+        if result.returncode != 0:
+            print("警告: Dockerがインストールされていません。")
+            return False
+    except FileNotFoundError:
+        print("警告: Dockerがインストールされていません。")
+        return False
+
+    container_name = config.VOICEVOX_DOCKER_CONTAINER_NAME
+    image_name = config.VOICEVOX_DOCKER_IMAGE
+
+    # 既存のコンテナがあるか確認
+    result = subprocess.run(
+        ['docker', 'ps', '-a', '--filter', f'name={container_name}', '--format', '{{.Names}}'],
+        capture_output=True, text=True
+    )
+
+    if container_name in result.stdout:
+        # コンテナが存在する場合、起動
+        print(f"既存のVOICEVOXコンテナを起動中... ({container_name})")
+        subprocess.run(['docker', 'start', container_name], capture_output=True)
+    else:
+        # 新規コンテナを作成・起動
+        print(f"VOICEVOXコンテナを作成・起動中... ({image_name})")
+
+        # GPU使用可否を確認
+        gpu_available = False
+        try:
+            result = subprocess.run(['nvidia-smi'], capture_output=True)
+            gpu_available = result.returncode == 0
+        except FileNotFoundError:
+            pass
+
+        cmd = [
+            'docker', 'run', '-d',
+            '--name', container_name,
+            '-p', '50021:50021',
+        ]
+
+        # GPU使用可能で、nvidia imageの場合はGPUを有効化
+        if gpu_available and 'nvidia' in image_name:
+            cmd.extend(['--gpus', 'all'])
+
+        cmd.append(image_name)
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"警告: VOICEVOXコンテナの起動に失敗しました: {result.stderr}")
+            return False
+
+    _voicevox_docker_started = True
+
+    # サーバーが起動するまで待機
+    print("  VOICEVOXサーバーの起動を待機中...")
+    max_wait = 60  # Dockerは起動に時間がかかる
+    for i in range(max_wait):
+        try:
+            response = requests.get(f"{config.VOICEVOX_URL}/version", timeout=2)
+            if response.status_code == 200:
+                version = response.json() if response.text else "unknown"
+                print(f"VOICEVOXサーバーが起動しました (version: {version})")
+                return True
+        except requests.exceptions.RequestException:
+            pass
+
+        time.sleep(1)
+        if (i + 1) % 10 == 0:
+            print(f"  まだ待機中... ({i + 1}秒)")
+
+    print("警告: VOICEVOXサーバーの起動がタイムアウトしました。")
+    return False
+
+def stop_voicevox():
+    """VOICEVOXを停止する"""
+    global _voicevox_docker_started
+
+    # Dockerコンテナの場合のみ停止（Macの.appは手動管理）
+    if _voicevox_docker_started and sys.platform.startswith('linux'):
+        container_name = config.VOICEVOX_DOCKER_CONTAINER_NAME
+        print(f"VOICEVOXコンテナを停止中... ({container_name})")
+        try:
+            subprocess.run(['docker', 'stop', container_name], capture_output=True, timeout=10)
+            print("VOICEVOXコンテナを停止しました。")
+        except Exception as e:
+            print(f"警告: VOICEVOXコンテナの停止に失敗しました: {e}")
+        _voicevox_docker_started = False
+
+# アプリケーション終了時にVOICEVOXも停止（Dockerの場合のみ）
+atexit.register(stop_voicevox)
+
 from logger_utils import initialize_log_directory # log_queue is created here
 # LoggingThread is initialized within Application
 from polar_monitor import HeartRateMonitor, H10Monitor
@@ -267,12 +439,16 @@ def main():
                              f"faster-whisperモデルのロードに失敗しました:\n{e_whisper}", parent=root)
         sys.exit(1)
 
-    # 4. Check VOICEVOX Server
-    print("VOICEVOXサーバーの接続を確認中...")
-    if not VoicevoxManager.check_server():
-        messagebox.showwarning("VOICEVOX警告",
-                               "VOICEVOXサーバーに接続できません。\n"
-                               "音声合成機能は利用できません。", parent=root)
+    # 4. Start/Check VOICEVOX Server
+    print("VOICEVOXサーバーを確認/起動中...")
+    if not start_voicevox():
+        # 自動起動に失敗した場合、手動確認
+        if not VoicevoxManager.check_server():
+            messagebox.showwarning("VOICEVOX警告",
+                                   "VOICEVOXサーバーに接続できません。\n"
+                                   "音声合成機能は利用できません。\n\n"
+                                   "Mac: VOICEVOXアプリを手動で起動してください。\n"
+                                   "Ubuntu: docker start voicevox_engine", parent=root)
 
     # 5. Initialize Core Components
     app_instance = None

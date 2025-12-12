@@ -121,6 +121,20 @@ INTERACTION_EVENT_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "interaction_events_
 # --- API and Service URLs ---
 VOICEVOX_URL = "http://localhost:50021"
 
+# --- VOICEVOX Auto-Start Settings ---
+# True: main.py起動時にVOICEVOXも自動起動
+VOICEVOX_AUTO_START = True
+
+# macOS: VOICEVOXアプリケーションのパス
+# 通常は /Applications/VOICEVOX.app
+VOICEVOX_MAC_APP_PATH = "/Applications/VOICEVOX.app"
+
+# Ubuntu: Dockerイメージとコンテナ設定
+VOICEVOX_DOCKER_IMAGE = "voicevox/voicevox_engine:cpu-ubuntu20.04-latest"
+VOICEVOX_DOCKER_CONTAINER_NAME = "voicevox_engine"
+# GPU版を使用する場合: "voicevox/voicevox_engine:nvidia-ubuntu20.04-latest"
+# VOICEVOX_DOCKER_IMAGE = "voicevox/voicevox_engine:nvidia-ubuntu20.04-latest"
+
 # --- LLM API Settings ---
 # ローカルLLM使用時は USE_LOCAL_LLM = True に設定
 # デフォルトは True (ローカルLLM を使用)
