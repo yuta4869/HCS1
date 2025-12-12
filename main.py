@@ -49,6 +49,51 @@ import config
 # グローバル変数: LLMサーバープロセス
 _llm_server_process = None
 
+def print_gpu_status():
+    """GPU使用状況を表示する"""
+    print("")
+    print("=" * 50)
+    print("          GPU / アクセラレータ状況")
+    print("=" * 50)
+
+    # GPU Backend
+    gpu_backend = config.GPU_BACKEND
+    if gpu_backend == "cuda":
+        try:
+            device_name = torch.cuda.get_device_name(0)
+            print(f"  GPU Backend:    CUDA ({device_name})")
+        except:
+            print(f"  GPU Backend:    CUDA")
+    elif gpu_backend == "mps":
+        print(f"  GPU Backend:    MPS (Apple Silicon)")
+    else:
+        print(f"  GPU Backend:    CPU (GPUなし)")
+
+    # LLM GPU Layers
+    gpu_layers = config.LOCAL_LLM_GPU_LAYERS
+    if gpu_layers == -1:
+        print(f"  LLM GPU Layers: -1 (全レイヤーをGPUに)")
+    elif gpu_layers == 0:
+        print(f"  LLM GPU Layers: 0 (CPUのみ)")
+    else:
+        print(f"  LLM GPU Layers: {gpu_layers}")
+
+    # Whisper
+    whisper_info = f"{config.WHISPER_MODEL_NAME} / {config.WHISPER_COMPUTE_TYPE}"
+    if config.WHISPER_COMPUTE_TYPE == "float16":
+        print(f"  Whisper:        {whisper_info} (GPU)")
+    else:
+        print(f"  Whisper:        {whisper_info} (CPU)")
+
+    # LLM Mode
+    if config.USE_LOCAL_LLM:
+        print(f"  LLM Mode:       ローカルLLM (llama.cpp)")
+    else:
+        print(f"  LLM Mode:       OpenAI API ({config.OPENAI_MODEL})")
+
+    print("=" * 50)
+    print("")
+
 def start_local_llm_server():
     """ローカルLLMサーバー(llama-cpp-python)を起動する"""
     global _llm_server_process
@@ -166,6 +211,9 @@ def main():
     root.withdraw()
 
     print("アプリケーションの初期化を開始します...")
+
+    # 0. Display GPU Status
+    print_gpu_status()
 
     # 1. Initialize Log Directory
     try:
