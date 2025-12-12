@@ -508,11 +508,13 @@ def main():
     print("メインプロセス終了。")
 
 if __name__ == "__main__":
-    # Setup for potential multiprocessing issues on Windows/macOS if any part uses it
-    # (though this app seems primarily thread-based)
-    if sys.platform.startswith('win'):
-        # import multiprocessing
-        # multiprocessing.freeze_support() # If multiprocessing were used
-        pass # No specific freeze_support needed for this threading model
+    # PyInstaller でバンドルしたアプリでは multiprocessing.freeze_support() が必須
+    # Windows と macOS の両方で必要
+    import multiprocessing
+    multiprocessing.freeze_support()
+
+    # macOS でのマルチプロセス開始方式を spawn に設定（fork は問題を起こすことがある）
+    if sys.platform == 'darwin':
+        multiprocessing.set_start_method('spawn', force=True)
 
     main()
