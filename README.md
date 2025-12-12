@@ -8,27 +8,31 @@ A conversation system that integrates heart rate monitoring with speech prosody 
 
 ## 📥 ダウンロード / Download
 
-### 最新版 (v6.3.2)
+### 最新版 (v6.8.0)
 
-**方法1: Git clone**
+**方法1: スタンドアロンアプリ (推奨)**
+
+| OS | ファイル | インストール方法 |
+|----|----------|-----------------|
+| macOS | `HCS_App_x.x.x_macOS.dmg` | DMG を開き、アプリを Applications にドラッグ |
+| Ubuntu | `hcs-app_x.x.x_amd64.deb` | `sudo dpkg -i hcs-app_x.x.x_amd64.deb` |
+
+[Releases ページ](https://github.com/yuta4869/HCS1/releases) からダウンロード
+
+**方法2: Git clone (開発者向け)**
 ```bash
 git clone https://github.com/yuta4869/HCS1.git
 cd HCS1
 ```
 
-**方法2: 特定バージョンをダウンロード**
+**方法3: 特定バージョンをダウンロード**
 ```bash
 # 最新リリース
-git clone --branch v6.3.2 --depth 1 https://github.com/yuta4869/HCS1.git
+git clone --branch v6.8.0 --depth 1 https://github.com/yuta4869/HCS1.git
 
 # または ZIP でダウンロード
-# https://github.com/yuta4869/HCS1/archive/refs/tags/v6.3.2.zip
+# https://github.com/yuta4869/HCS1/archive/refs/tags/v6.8.0.zip
 ```
-
-**方法3: GitHub Releases**
-1. [Releases ページ](https://github.com/yuta4869/HCS1/releases) にアクセス
-2. 最新のリリース (v6.3.2) を選択
-3. Source code (zip) または Source code (tar.gz) をダウンロード
 
 ---
 
@@ -233,7 +237,12 @@ python3 main.py
 ```
 HCS1/
 ├── main.py                 # Entry point
-├── gui.py                  # GUI (Tkinter)
+├── gui/                    # GUI package (Tkinter)
+│   ├── __init__.py
+│   ├── application.py      # Main Application class
+│   ├── status_window.py    # Status display window
+│   ├── ecg_analysis.py     # ECG/HRV analysis
+│   └── questionnaire_analysis.py
 ├── audio_processing.py     # Audio processing & TTS
 ├── hrf2_controller.py      # Heart rate feedback controller
 ├── polar_monitor.py        # Polar sensor BLE connection
@@ -242,7 +251,28 @@ HCS1/
 ├── requirements.txt        # Python dependencies
 ├── setup_mac.sh            # macOS setup script
 ├── setup_ubuntu.sh         # Ubuntu setup script
+├── build_mac.sh            # macOS build script (DMG)
+├── build_ubuntu.sh         # Ubuntu build script (DEB)
+├── HCS_App.spec            # PyInstaller spec file
 └── docs/                   # Technical documentation
+```
+
+## 🔨 ビルド / Build
+
+スタンドアロンアプリをビルドする場合:
+
+**macOS:**
+```bash
+chmod +x build_mac.sh
+./build_mac.sh
+# DMGを作成するか聞かれます → 出力: dist/HCS_App_x.x.x_macOS.dmg
+```
+
+**Ubuntu:**
+```bash
+chmod +x build_ubuntu.sh
+./build_ubuntu.sh
+# DEBを作成するか聞かれます → 出力: dist/hcs-app_x.x.x_amd64.deb
 ```
 
 ## 📄 License
@@ -251,6 +281,11 @@ MIT License
 
 ## 📝 Version History
 
+- **v6.8.0** - DMG/DEB package generation added to build scripts
+- **v6.7.1** - Fix PyInstaller multiprocessing issue on macOS
+- **v6.7.0** - VOICEVOX auto-start support (Mac/Ubuntu)
+- **v6.6.0** - Cross-platform build system (PyInstaller)
+- **v6.5.0** - GUI modular package structure
 - **v6.3.2** - Gain type selection (P/PI/PD/PID) for GainSchedule control
 - **v6.3.0** - GainSchedule control mode added
 - **v6.2.0** - Adaptive control (MRAC) added
