@@ -19,14 +19,51 @@ def resource_path(relative_path):
             base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+# --- GPU Detection ---
+def _detect_gpu_backend():
+    """利用可能なGPUバックエンドを検出する
+
+    Returns:
+        tuple: (backend_name, gpu_layers)
+            backend_name: "cuda", "mps", "cpu"
+            gpu_layers: -1 (全レイヤーをGPUに), 0 (CPUのみ)
+    """
+    try:
+        import torch
+
+        # CUDA (NVIDIA GPU)
+        if torch.cuda.is_available():
+            device_name = torch.cuda.get_device_name(0)
+            print(f"GPU検出: CUDA ({device_name})")
+            return "cuda", -1
+
+        # MPS (Apple Silicon)
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            print("GPU検出: MPS (Apple Silicon)")
+            return "mps", -1
+
+        # CPU fallback
+        print("GPU検出: なし (CPUを使用)")
+        return "cpu", 0
+
+    except ImportError:
+        print("警告: PyTorchがインストールされていません (CPUを使用)")
+        return "cpu", 0
+
+# GPU設定を検出
+GPU_BACKEND, _DEFAULT_GPU_LAYERS = _detect_gpu_backend()
+
 # --- General Configuration ---
-# Whisper設定: CUDA/CPUに応じて自動選択
+# Whisper設定: CUDA/MPS/CPUに応じて自動選択
 def _detect_whisper_settings():
-    """CUDA利用可能かどうかで最適なWhisper設定を返す"""
+    """GPU利用可能かどうかで最適なWhisper設定を返す"""
     try:
         import torch
         if torch.cuda.is_available():
             # CUDA: より大きなモデルと高精度な計算
+            return "small", "float16"
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            # MPS (Apple Silicon): float16対応
             return "small", "float16"
         else:
             # CPU: 軽量モデルと量子化
@@ -103,7 +140,10 @@ LOCAL_LLM_MODEL_PATH = "./models/model.gguf"  # 使用するモデルファイ�
 LOCAL_LLM_HOST = "127.0.0.1"
 LOCAL_LLM_PORT = 8080
 LOCAL_LLM_CONTEXT_SIZE = 4096  # コンテキストサイズ
-LOCAL_LLM_GPU_LAYERS = -1  # -1: 全レイヤーをGPUに載せる (Metal/CUDA), 0: CPUのみ
+# GPUレイヤー数: 自動検出された値を使用
+# -1: 全レイヤーをGPUに載せる (Metal/CUDA検出時)
+#  0: CPUのみ (GPU未検出時)
+LOCAL_LLM_GPU_LAYERS = _DEFAULT_GPU_LAYERS
 
 # OpenAI API設定 (USE_LOCAL_LLM = False の場合に使用)
 OPENAI_MODEL = "gpt-4o-mini"
