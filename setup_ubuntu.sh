@@ -8,12 +8,12 @@ echo "Updating apt package list..."
 sudo apt-get update
 
 # --- Step 2: Install System Dependencies ---
-echo "Installing system dependencies (portaudio, bluetooth, python3-.venv)..."
-sudo apt-get install -y portaudio19-dev libbluetooth-dev python3-.venv
+echo "Installing system dependencies (portaudio, bluetooth, python3-venv)..."
+sudo apt-get install -y portaudio19-dev libbluetooth-dev python3-venv
 
 # --- Step 3: Create Python Virtual Environment ---
 echo "Creating Python virtual environment in '.venv'..."
-python3 -m .venv .venv
+python3 -m venv .venv
 
 # --- Step 4: Install Python Packages ---
 echo "Installing Python packages from requirements.txt..."

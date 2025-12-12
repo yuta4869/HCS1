@@ -22,7 +22,7 @@ if ! command -v python3 &> /dev/null; then
     echo "Python 3 not found. Please install it first."
     exit 1
 fi
-python3 -m .venv .venv
+python3 -m venv .venv
 
 # --- Step 4: Install Python Packages ---
 echo "Installing Python packages from requirements.txt..."
