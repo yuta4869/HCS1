@@ -186,26 +186,16 @@ class RealtimeMonitorMixin:
             self.rr_intervals.append(rr_interval)
             self.last_hr_time = current_time
 
-        # ECGデータ取得 (H10のみ)
-        # H10のECGはログに書き込まれるため、直接アクセスは難しい
-        # シミュレーションとして心拍に基づくECG風波形を生成（130Hz更新）
+        # ECGデータ取得 (H10のみ) - 実データをバッファから取得
         if self.h10_monitor.is_connected:
-            self.ecg_times.append(elapsed)
-            # QRS複合波のシミュレーション
-            if hr_value > 0:
-                beat_interval = 60.0 / hr_value
-                phase = (elapsed % beat_interval) / beat_interval
-                if 0.1 < phase < 0.15:
-                    ecg_val = 800 * (phase - 0.1) / 0.05  # R波上昇
-                elif 0.15 <= phase < 0.2:
-                    ecg_val = 800 - 1600 * (phase - 0.15) / 0.05  # R波下降
-                elif 0.2 <= phase < 0.25:
-                    ecg_val = -800 + 800 * (phase - 0.2) / 0.05  # S波
-                else:
-                    ecg_val = 50 * (0.5 - abs(phase - 0.5))  # ベースライン
-            else:
-                ecg_val = 0
-            self.ecg_values.append(ecg_val)
+            ecg_data = self.h10_monitor.get_ecg_buffer()
+            if ecg_data:
+                # バッファ全体を使用（直近5秒分）
+                ecg_sample_rate = 130  # Hz
+                num_samples = len(ecg_data)
+                # 時間軸を生成（現在時刻から逆算）
+                self.ecg_times = [elapsed - (num_samples - i - 1) / ecg_sample_rate for i in range(num_samples)]
+                self.ecg_values = ecg_data
 
         # HRV (SDNN) 計算: RR間隔の標準偏差
         if len(self.rr_intervals) >= 2:
@@ -247,16 +237,16 @@ class RealtimeMonitorMixin:
 
     def _update_ecg_graph(self, elapsed: float) -> None:
         """ECGグラフを更新"""
-        if self.ecg_times:
-            # ECGは直近5秒のみ表示（データ量が多いため）
+        if self.ecg_times and self.ecg_values:
+            # ECGデータをそのまま表示（H10バッファから直接取得済み）
             ecg_window = 5
-            ecg_min_time = elapsed - ecg_window
-            ecg_display_times = [t for t in self.ecg_times if t >= ecg_min_time]
-            ecg_display_values = self.ecg_values[-len(ecg_display_times):]
-            self.ecg_line.set_data(ecg_display_times, ecg_display_values)
+            self.ecg_line.set_data(self.ecg_times, self.ecg_values)
             self.ecg_ax.set_xlim(max(0, elapsed - ecg_window), elapsed + 0.5)
-            if ecg_display_values:
-                self.ecg_ax.set_ylim(min(ecg_display_values) - 100, max(ecg_display_values) + 100)
+            if self.ecg_values:
+                ecg_min = min(self.ecg_values)
+                ecg_max = max(self.ecg_values)
+                margin = max(100, (ecg_max - ecg_min) * 0.1)
+                self.ecg_ax.set_ylim(ecg_min - margin, ecg_max + margin)
 
     def _update_hrv_graph(self, elapsed: float, window_size: int) -> None:
         """HRVグラフを更新"""
