@@ -15,3 +15,6 @@ openpyxl
 japanize-matplotlib
 llama-cpp-python
 huggingface-hub
+
+# ビルド用（オプション）
+# pyinstaller
