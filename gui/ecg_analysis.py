@@ -154,6 +154,7 @@ def calculate_hrv_indices(file_path, label, fs=130):
 
     LF_HF_sliding = []
     RMSSD_sliding = []
+    SDNN_sliding = []
     time_points = []
 
     i = 0
@@ -175,12 +176,18 @@ def calculate_hrv_indices(file_path, label, fs=130):
         LF_HF_sliding.append(lf_hf_val)
 
         if len(rri_window) > 1:
+            # RMSSD: Root Mean Square of Successive Differences
             diff_rri = np.diff(rri_window)
             mssd = np.mean(np.square(diff_rri))
             rmssd_val = np.sqrt(mssd)
             RMSSD_sliding.append(rmssd_val)
+
+            # SDNN: Standard Deviation of NN intervals
+            sdnn_val = np.std(rri_window)
+            SDNN_sliding.append(sdnn_val)
         else:
             RMSSD_sliding.append(np.nan)
+            SDNN_sliding.append(np.nan)
 
         time_points.append(i)
         i += 1
@@ -188,7 +195,8 @@ def calculate_hrv_indices(file_path, label, fs=130):
     sliding_result_df = pd.DataFrame({
         'Time': time_points,
         'LF/HF': LF_HF_sliding,
-        'RMSSD': RMSSD_sliding
+        'RMSSD': RMSSD_sliding,
+        'SDNN': SDNN_sliding
     })
 
     return sliding_result_df, overall_lf_hf_val
@@ -219,7 +227,7 @@ def run_batch_analysis(files_map, output_dir):
             print(f"  -> 全体平均結果を保存: {os.path.basename(overall_output_path)}")
 
             df_renamed = sliding_df.copy()
-            df_renamed.columns = ['Time', f'{label}_LF/HF', f'{label}_RMSSD']
+            df_renamed.columns = ['Time', f'{label}_LF/HF', f'{label}_RMSSD', f'{label}_SDNN']
 
             if combined_df is None:
                 combined_df = df_renamed
@@ -235,6 +243,7 @@ def run_batch_analysis(files_map, output_dir):
             if f'{label}_LF/HF' in combined_df.columns:
                 cols.append(f'{label}_LF/HF')
                 cols.append(f'{label}_RMSSD')
+                cols.append(f'{label}_SDNN')
 
         combined_df = combined_df[cols]
         combined_output_path = os.path.join(output_dir, "Combined_HRV_Analysis.xlsx")
@@ -263,7 +272,8 @@ def generate_box_plots(input_file_path, output_dir):
 
     for metric_suffix, title, output_filename in [
         ('_LF/HF', 'LF/HFの比較（時系列分布）', 'LFHF_Boxplot.png'),
-        ('_RMSSD', 'RMSSDの比較（時系列分布）', 'RMSSD_Boxplot.png')
+        ('_RMSSD', 'RMSSDの比較（時系列分布）', 'RMSSD_Boxplot.png'),
+        ('_SDNN', 'SDNNの比較（時系列分布）', 'SDNN_Boxplot.png')
     ]:
         print(f"--- {title} のグラフを作成中 ---")
         plot_data = pd.DataFrame()
