@@ -2,6 +2,7 @@
 """アンケート解析関連のヘルパー関数"""
 
 from pathlib import Path
+from typing import List, Optional
 
 import pandas as pd
 import matplotlib
@@ -13,10 +14,30 @@ try:
 except ImportError:
     pass
 
+from .ecg_analysis import CONDITION_COLORS
+
 # Analys_Q用の設定
-Q_CONDITION_MAP = {1: "Fixed", 2: "HRF", 3: "Sin"}
-Q_CONDITION_ORDER = ["Fixed", "HRF", "Sin"]
-Q_CONDITION_COLORS = {"Fixed": "#f6b5b5", "HRF": "#fff2a6", "Sin": "#a5c8ff"}
+Q_CONDITION_MAP = {
+    1: "Fixed",
+    2: "HRF",
+    3: "Sin",
+    4: "HRF2_PID",
+    5: "HRF2_Adaptive",
+    6: "HRF2_GS",
+    7: "HRF2_AdaptiveMPC",
+}
+Q_CONDITION_ORDER = [
+    "Fixed",
+    "HRF",
+    "Sin",
+    "HRF2_PID",
+    "HRF2_Adaptive",
+    "HRF2_GS",
+    "HRF2_AdaptiveMPC",
+]
+Q_CONDITION_COLORS = {
+    name: CONDITION_COLORS.get(name, "#999999") for name in Q_CONDITION_ORDER
+}
 
 
 def normalize_condition(value):
@@ -36,7 +57,7 @@ def normalize_condition(value):
     return Q_CONDITION_MAP.get(as_int, str(value))
 
 
-def load_and_melt_data(file_path: str):
+def load_and_melt_data(file_path: str, condition_order: Optional[List[str]] = None):
     """Excelを読み込み、ロング形式DataFrameと設問タイトルを返す。"""
     df = pd.read_excel(file_path)
     if df.shape[1] < 4:
@@ -68,23 +89,26 @@ def load_and_melt_data(file_path: str):
     )
     tidy_df = tidy_df.dropna(subset=["Score", "Condition"])
     tidy_df["Question"] = pd.Categorical(tidy_df["Question"], categories=question_columns, ordered=True)
-    tidy_df["Condition"] = pd.Categorical(
-        tidy_df["Condition"], categories=Q_CONDITION_ORDER, ordered=True
-    )
 
+    selected_order = condition_order or Q_CONDITION_ORDER
+    tidy_df = tidy_df[tidy_df["Condition"].isin(selected_order)].copy()
     if tidy_df.empty:
-        raise ValueError("有効な回答データが見つかりませんでした。")
+        raise ValueError("有効な回答データが見つかりませんでした（選択された条件のデータがありません）。")
+    tidy_df["Condition"] = pd.Categorical(
+        tidy_df["Condition"], categories=selected_order, ordered=True
+    ).remove_unused_categories()
 
     return tidy_df, question_labels
 
 
-def generate_plots(file_path: str):
+def generate_plots(file_path: str, condition_order: Optional[List[str]] = None):
     """Excelを読み込み、箱ひげ図を作成する。"""
     plt.close("all")
-    tidy_df, question_labels = load_and_melt_data(file_path)
+    tidy_df, question_labels = load_and_melt_data(file_path, condition_order=condition_order)
     output_dir = Path(file_path).parent
 
-    palette = [Q_CONDITION_COLORS.get(name, "#999999") for name in Q_CONDITION_ORDER]
+    active_conditions = list(tidy_df["Condition"].cat.categories)
+    palette = [Q_CONDITION_COLORS.get(name, "#999999") for name in active_conditions]
 
     g = sns.catplot(
         data=tidy_df,
@@ -93,7 +117,7 @@ def generate_plots(file_path: str):
         col="Question",
         col_wrap=3,
         kind="box",
-        order=Q_CONDITION_ORDER,
+        order=active_conditions,
         palette=palette,
         sharey=False,
         height=3.8,
@@ -121,7 +145,7 @@ def generate_plots(file_path: str):
             data=question_data,
             x="Condition",
             y="Score",
-            order=Q_CONDITION_ORDER,
+            order=active_conditions,
             palette=palette,
             ax=ax,
         )
