@@ -72,6 +72,13 @@ class RealtimeMonitorMixin:
         )
         self.current_hrv_label.pack(side=tk.LEFT, padx=10)
 
+        # HRF2目標心拍数表示ラベル
+        self.target_hr_display_label = ttk.Label(
+            control_frame, text="",
+            font=('Helvetica', 12), foreground='blue'
+        )
+        self.target_hr_display_label.pack(side=tk.LEFT, padx=(20, 10))
+
         # --- グラフ表示エリア ---
         graph_frame = ttk.Frame(main_frame)
         graph_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
@@ -91,6 +98,11 @@ class RealtimeMonitorMixin:
         self.hr_ax.set_xlabel("時間 (秒)")
         self.hr_ax.grid(True, alpha=0.3)
         self.hr_line, = self.hr_ax.plot([], [], 'r-', linewidth=1.5, label='HR')
+        # HRF2目標心拍数ライン（初期は非表示）
+        self.target_hr_line = self.hr_ax.axhline(
+            y=70, color='blue', linestyle='--', linewidth=2.0,
+            label='目標HR', visible=False
+        )
         self.hr_ax.legend(loc='upper right')
 
         # ECGグラフ設定
@@ -359,6 +371,20 @@ class RealtimeMonitorMixin:
             self.hr_ax.set_xlim(max(0, elapsed - window_size), elapsed + 1)
             hr_min = min(self.hr_values) - 10 if self.hr_values else 50
             hr_max = max(self.hr_values) + 10 if self.hr_values else 120
+
+            # HRF2制御が有効な場合、目標心拍数ラインを表示
+            target_hr = self._get_hrf2_target_hr()
+            if target_hr is not None:
+                self.target_hr_line.set_ydata([target_hr, target_hr])
+                self.target_hr_line.set_visible(True)
+                self.target_hr_display_label.config(text=f"目標HR: {target_hr:.0f} bpm")
+                # Y軸範囲を目標値も含めて調整
+                hr_min = min(hr_min, target_hr - 10)
+                hr_max = max(hr_max, target_hr + 10)
+            else:
+                self.target_hr_line.set_visible(False)
+                self.target_hr_display_label.config(text="")
+
             self.hr_ax.set_ylim(hr_min, hr_max)
 
     def _update_ecg_graph(self, elapsed: float) -> None:
@@ -388,3 +414,22 @@ class RealtimeMonitorMixin:
         while times and times[0] < min_time:
             times.pop(0)
             values.pop(0)
+
+    def _get_hrf2_target_hr(self) -> Optional[float]:
+        """HRF2制御が有効な場合、目標心拍数を取得"""
+        # audio_processorからHRF2コントローラーの状態を取得
+        audio_processor = getattr(self, 'audio_processor', None)
+        if audio_processor is None:
+            return None
+
+        # HRF2が有効かチェック
+        if not getattr(audio_processor, 'hrf2_enabled', False):
+            return None
+
+        # HRF2コントローラーから目標心拍数を取得
+        hrf2_controller = getattr(audio_processor, 'hrf2_controller', None)
+        if hrf2_controller is None:
+            return None
+
+        target_hr = hrf2_controller.get_target_hr()
+        return target_hr if target_hr > 0 else None
