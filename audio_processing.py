@@ -207,14 +207,19 @@ class ProsodySettings:
         Returns:
             "Sin" - 正弦波モード
             "HRF" - 心拍数フィードバックモード（直接調整）
-            "HRF2_<制御種別>" - HRF2の制御モード（例: HRF2_PID, HRF2_Adaptive）
+            "HRF2_<制御種別>" - HRF2の制御モード（例: HRF2_PID, HRF2_Adaptive, HRF2_GS）
             "Fixed" - 抑揚固定モード（どちらも無効）
         """
         if self.sinusoidal_hfb_enabled:
             return "Sin"
         elif self.hrf2_enabled:
             control_mode = getattr(self.hrf2_controller, "control_mode", None)
-            control_label = control_mode.value if control_mode else "PID"
+            if control_mode == ControlMode.GAIN_SCHEDULED:
+                control_label = "GS"
+            elif control_mode:
+                control_label = control_mode.value
+            else:
+                control_label = "PID"
             return f"HRF2_{control_label}"
         elif self.hfb_enabled:
             return "HRF"
@@ -233,7 +238,8 @@ class ProsodySettings:
         elif mode.startswith("HRF2"):
             control_label = mode.split("_", 1)[1] if "_" in mode else ""
             if control_label:
-                return f"心拍追従 (HRF2 / {control_label})"
+                label_display = "GS (GainSchedule)" if control_label == "GS" else control_label
+                return f"心拍追従 (HRF2 / {label_display})"
             return "心拍追従 (HRF2)"
         elif mode == "HRF":
             return "心拍フィードバック (HRF)"
