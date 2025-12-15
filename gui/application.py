@@ -2071,9 +2071,18 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
             if hasattr(self, 'subject_entry'):
                 self.subject_entry.focus_set()
             return
-        if not os.getenv("OPENAI_API_KEY"):
-            messagebox.showerror("APIキーエラー", "OpenAI APIキーが設定されていません。\n環境変数 'OPENAI_API_KEY' を確認してください。")
-            return
+        if not self.use_local_llm_var.get():
+            api_key = self.openai_api_key_var.get().strip() or os.getenv("OPENAI_API_KEY", "")
+            if not api_key:
+                messagebox.showerror(
+                    "APIキーエラー",
+                    "OpenAI APIキーが設定されていません。\n環境変数 'OPENAI_API_KEY' か入力欄を確認してください。"
+                )
+                if hasattr(self, "api_key_entry"):
+                    self.api_key_entry.focus_set()
+                return
+            # keep env var in sync so他処理が参照するときに困らない
+            os.environ["OPENAI_API_KEY"] = api_key
         if not VoicevoxManager.check_server():
             messagebox.showerror("VOICEVOXエラー", "VOICEVOXサーバーに接続できません。\n音声合成機能は利用できません。")
             return
