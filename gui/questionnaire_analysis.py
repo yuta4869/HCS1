@@ -24,7 +24,7 @@ Q_CONDITION_MAP = {
     4: "HRF2_PID",
     5: "HRF2_Adaptive",
     6: "HRF2_GS",
-    7: "HRF2_AdaptiveMPC",
+    7: "HRF2_Robust",
 }
 Q_CONDITION_ORDER = [
     "Fixed",
@@ -33,7 +33,7 @@ Q_CONDITION_ORDER = [
     "HRF2_PID",
     "HRF2_Adaptive",
     "HRF2_GS",
-    "HRF2_AdaptiveMPC",
+    "HRF2_Robust",
 ]
 Q_CONDITION_COLORS = {
     name: CONDITION_COLORS.get(name, "#999999") for name in Q_CONDITION_ORDER
