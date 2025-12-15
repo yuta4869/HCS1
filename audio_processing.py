@@ -478,9 +478,12 @@ class AudioProcessor:
     def _stream_input_loop(self):
         """The main loop for the audio input stream.
 
-        Linux/PulseAudioでのinput overflow対策として、
-        コールバック方式ではなくブロッキング読み取り方式を使用。
+        コールバック方式を使用。overflowはログに出さず無視する。
         """
+        def _stream_callback(indata: np.ndarray, frames: int, time_info, status) -> None:
+            # statusは無視（input overflowログを出さない）
+            self.audio_q.put(indata.copy())
+
         try:
             # デバイス情報をログに出力
             device_info = ""
@@ -498,22 +501,13 @@ class AudioProcessor:
 
             print(f"Audio stream thread started.{device_info} (blocksize: {self.chunk_size})")
 
-            # ブロッキング読み取り方式（input overflow対策）
             with sd.InputStream(samplerate=self.sample_rate,
                                 channels=self.channels,
                                 blocksize=self.chunk_size,
                                 device=self.input_device_index,
-                                dtype='float32') as stream:
+                                callback=_stream_callback):
                 while not self.stream_stop_event.is_set():
-                    try:
-                        # ブロッキングで読み取り（overflowフラグは無視）
-                        data, overflowed = stream.read(self.chunk_size)
-                        # overflowedがTrueでもデータは使用可能
-                        self.audio_q.put(data.copy())
-                    except Exception as e:
-                        if not self.stream_stop_event.is_set():
-                            print(f"Stream read error: {e}", file=sys.stderr)
-                        break
+                    time.sleep(0.1)
         except Exception as e:
             print(f"Error in audio input stream: {e}", file=sys.stderr)
         finally:
@@ -653,22 +647,24 @@ class AudioProcessor:
     def record_audio(self, filename: str = "input.wav") -> Tuple[bool, Optional[datetime.datetime], Optional[datetime.datetime]]:
         """録音を行い、WAVファイルに保存する
 
-        Linux/PulseAudioでのinput overflow対策として、
-        ブロッキング読み取り方式を使用。
+        コールバック方式を使用。overflowはログに出さず無視する。
         """
+        audio_q = queue.Queue()
         self.stop_event.clear()
         recording_success = False
 
         rec_start_dt: Optional[datetime.datetime] = None
         rec_end_dt: Optional[datetime.datetime] = None
 
+        def callback(indata: np.ndarray, frames: int, time_info, status) -> None:
+            # statusは無視（input overflowログを出さない）
+            audio_q.put(indata.copy())
+
         try:
             os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
-
-            # ブロッキング読み取り方式（input overflow対策）
             with sd.InputStream(samplerate=self.sample_rate, channels=self.channels,
-                              blocksize=self.chunk_size, dtype='float32',
-                              device=self.input_device_index) as stream:
+                              callback=callback, blocksize=self.chunk_size, dtype='float32',
+                              device=self.input_device_index):
                 recorded_chunks: List[np.ndarray] = []
                 silent_start_time: Optional[float] = None
                 recording_start_time: Optional[float] = None
@@ -679,15 +675,16 @@ class AudioProcessor:
 
                 while not self.stop_event.is_set():
                     try:
-                        # ブロッキングで読み取り（overflowは無視）
-                        audio_chunk, overflowed = stream.read(self.chunk_size)
-                    except Exception as e:
-                        if not self.stop_event.is_set():
-                            print(f"Recording read error: {e}", file=sys.stderr)
-                        break
-
-                    if self.stop_event.is_set():
-                        break
+                        audio_chunk = audio_q.get(timeout=0.1)
+                    except queue.Empty:
+                        if self.stop_event.is_set(): break
+                        if is_recording_active and silent_start_time and recording_start_time:
+                            current_time_for_silence_check = time.time()
+                            if (current_time_for_silence_check - silent_start_time >= self.required_silent_seconds and
+                                current_time_for_silence_check - recording_start_time >= self.min_record_seconds):
+                                print(f"Silence detected for {self.required_silent_seconds:.1f}s. Stopping recording.")
+                                break
+                        continue
 
                     current_time = time.time()
                     rms_volume = np.sqrt(np.mean(audio_chunk**2))
