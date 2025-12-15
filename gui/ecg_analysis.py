@@ -317,11 +317,26 @@ def run_batch_analysis(
     min_hr=45.0,
     max_hr=210.0,
     analysis_window_seconds=30.0,
+    subject_id=None,
 ):
-    """バッチ解析を実行し、結果をExcelファイルに保存する"""
+    """バッチ解析を実行し、結果をExcelファイルに保存する
+
+    Args:
+        subject_id: 被験者ID（出力ファイル名に含める。Noneの場合はフォルダ名から推測）
+    """
     os.makedirs(output_dir, exist_ok=True)
     combined_df = None
     print("=== バッチ解析を開始します ===")
+
+    # subject_idが指定されていない場合、出力フォルダ名から推測
+    if subject_id is None:
+        folder_name = os.path.basename(output_dir.rstrip('/\\'))
+        # No1, No2 などのパターンをチェック
+        match = re.match(r'(No\d+)', folder_name, re.IGNORECASE)
+        if match:
+            subject_id = match.group(1)
+        else:
+            subject_id = folder_name
 
     for label, filename in files_map.items():
         file_path = filename
@@ -344,11 +359,12 @@ def run_batch_analysis(
         )
 
         if sliding_df is not None and not sliding_df.empty:
-            sliding_output_path = os.path.join(output_dir, f"{label}_result.xlsx")
+            # 被験者番号を含むファイル名: {subject_id}_{condition}_result.xlsx
+            sliding_output_path = os.path.join(output_dir, f"{subject_id}_{label}_result.xlsx")
             sliding_df.to_excel(sliding_output_path, index=False)
             print(f"  -> 時系列結果を保存: {os.path.basename(sliding_output_path)}")
 
-            overall_output_path = os.path.join(output_dir, f"{label}_resultLFHF5min.xlsx")
+            overall_output_path = os.path.join(output_dir, f"{subject_id}_{label}_resultLFHF5min.xlsx")
             overall_df_file = pd.DataFrame({'File Name': [filename], 'LF/HF (Overall)': [overall_lfhf]})
             overall_df_file.to_excel(overall_output_path, index=False)
             print(f"  -> 全体平均結果を保存: {os.path.basename(overall_output_path)}")
@@ -373,7 +389,7 @@ def run_batch_analysis(
                 cols.append(f'{label}_SDNN')
 
         combined_df = combined_df[cols]
-        combined_output_path = os.path.join(output_dir, "Combined_HRV_Analysis.xlsx")
+        combined_output_path = os.path.join(output_dir, f"{subject_id}_Combined_HRV_Analysis.xlsx")
         combined_df.to_excel(combined_output_path, index=False)
         print(f"\n=== 全データの結合ファイルを保存しました ===")
         print(f"保存先: {combined_output_path}")

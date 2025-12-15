@@ -1089,10 +1089,11 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                             quantile_high=quantile_high,
                             min_hr=min_hr,
                             max_hr=max_hr,
-                            analysis_window_seconds=window_length
+                            analysis_window_seconds=window_length,
+                            subject_id=subject_id
                         )
 
-                        combined_file = os.path.join(subject_dir, "Combined_HRV_Analysis.xlsx")
+                        combined_file = os.path.join(subject_dir, f"{subject_id}_Combined_HRV_Analysis.xlsx")
                         if os.path.exists(combined_file):
                             print(f"{subject_id}: 箱ひげ図を作成します")
                             analys_generate_box_plots(combined_file, subject_dir)

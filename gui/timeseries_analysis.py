@@ -2,7 +2,9 @@
 """個別時系列解析モジュール
 
 被験者ごとに条件別・全条件統合の時系列グラフを生成する。
-入力: ECG/HRV解析で出力された {条件名}_result.xlsx ファイル
+入力:
+  - ECG/HRV解析で出力された {subject_id}_{条件名}_result.xlsx ファイル
+  - 会話システムで出力された h10_hr_session_*.csv / verity_hr_session_*.csv ファイル
 出力: HR, RMSSD, SDNN の時系列グラフ画像
 """
 
@@ -12,8 +14,10 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from datetime import datetime
 
 import pandas as pd
+import numpy as np
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
@@ -179,9 +183,13 @@ class TimeseriesAnalysisMixin:
 
         self._ts_log(f"検出したファイル数: {len(result_files)}")
 
+        # 被験者IDを取得（最初のファイルから）
+        subject_id = result_files[0][1] if result_files else "Unknown"
+        self._ts_log(f"被験者ID: {subject_id}")
+
         # 条件ごとのデータを読み込み
         condition_data: Dict[str, pd.DataFrame] = {}
-        for filepath, condition in result_files:
+        for filepath, subj_id, condition in result_files:
             self._ts_log(f"読み込み中: {os.path.basename(filepath)} ({condition})")
             try:
                 df = pd.read_excel(filepath)
@@ -202,35 +210,62 @@ class TimeseriesAnalysisMixin:
         # 条件別グラフ（HR, RMSSD, SDNN）
         for condition, df in condition_data.items():
             self._ts_generate_condition_graphs(
-                condition, df, output_folder,
+                subject_id, condition, df, output_folder,
                 reference_hr, target_hr, show_reference, show_target
             )
 
         # 全条件統合グラフ
         if generate_combined and len(condition_data) > 1:
             self._ts_generate_combined_graphs(
-                condition_data, output_folder,
+                subject_id, condition_data, output_folder,
                 reference_hr, target_hr, show_reference, show_target
             )
+
+        # H10/Verity HRセッションファイルからのHRグラフ生成
+        self._ts_log("\n=== HRセッションファイル処理 ===")
+        hr_session_files = self._ts_find_hr_session_files(input_folder)
+        if hr_session_files:
+            self._ts_log(f"検出したHRセッションファイル数: {len(hr_session_files)}")
+            self._ts_generate_hr_session_graphs(
+                hr_session_files, output_folder,
+                reference_hr, target_hr, show_reference, show_target
+            )
+        else:
+            self._ts_log("HRセッションファイル (h10_hr_session_*.csv, verity_hr_session_*.csv) は見つかりませんでした。")
 
         self._ts_log("\n=== 解析完了 ===")
         self.ts_progress_label.config(text="完了")
         messagebox.showinfo("完了", "時系列グラフの生成が完了しました。")
 
-    def _ts_find_result_files(self, folder: str) -> List[Tuple[str, str]]:
-        """解析結果ファイルを検索して (ファイルパス, 条件名) のリストを返す"""
+    def _ts_find_result_files(self, folder: str) -> List[Tuple[str, str, str]]:
+        """解析結果ファイルを検索して (ファイルパス, 被験者ID, 条件名) のリストを返す"""
         result_files = []
-        pattern = re.compile(r"(.+)_result\.xlsx$", re.IGNORECASE)
+        # パターン1: {subject_id}_{condition}_result.xlsx (新形式)
+        pattern_new = re.compile(r"(.+?)_(.+)_result\.xlsx$", re.IGNORECASE)
+        # パターン2: {condition}_result.xlsx (旧形式)
+        pattern_old = re.compile(r"(.+)_result\.xlsx$", re.IGNORECASE)
 
         for filename in os.listdir(folder):
-            if filename.endswith("_result.xlsx"):
-                match = pattern.match(filename)
-                if match:
-                    condition = match.group(1)
-                    # 標準条件名に正規化
+            if filename.endswith("_result.xlsx") and not filename.startswith("Combined"):
+                filepath = os.path.join(folder, filename)
+
+                # 新形式を試す
+                match_new = pattern_new.match(filename)
+                if match_new:
+                    subject_id = match_new.group(1)
+                    condition = match_new.group(2)
+                    # 条件名を正規化
                     condition_normalized = self._ts_normalize_condition(condition)
-                    filepath = os.path.join(folder, filename)
-                    result_files.append((filepath, condition_normalized))
+                    result_files.append((filepath, subject_id, condition_normalized))
+                else:
+                    # 旧形式（条件名のみ）
+                    match_old = pattern_old.match(filename)
+                    if match_old:
+                        condition = match_old.group(1)
+                        condition_normalized = self._ts_normalize_condition(condition)
+                        # 被験者IDはフォルダ名から推測
+                        folder_name = os.path.basename(folder.rstrip('/\\'))
+                        result_files.append((filepath, folder_name, condition_normalized))
 
         return result_files
 
@@ -244,6 +279,7 @@ class TimeseriesAnalysisMixin:
 
     def _ts_generate_condition_graphs(
         self,
+        subject_id: str,
         condition: str,
         df: pd.DataFrame,
         output_folder: str,
@@ -258,35 +294,38 @@ class TimeseriesAnalysisMixin:
 
         # HR グラフ（HRデータがある場合）
         if 'HR' in df.columns:
+            filename = f"{subject_id}_{condition}_HR.png"
             self._ts_plot_single(
                 time_col, df['HR'].values,
-                f"{condition} - 心拍数 (HR)",
+                f"{subject_id} {condition} - 心拍数 (HR)",
                 "Time (sec)", "HR (BPM)",
-                color, output_folder, f"{condition}_HR.png",
+                color, output_folder, filename,
                 reference_hr if show_reference else None,
                 target_hr if show_target else None
             )
-            self._ts_log(f"  生成: {condition}_HR.png")
+            self._ts_log(f"  生成: {filename}")
 
         # RMSSD グラフ
         if 'RMSSD' in df.columns:
+            filename = f"{subject_id}_{condition}_RMSSD.png"
             self._ts_plot_single(
                 time_col, df['RMSSD'].values,
-                f"{condition} - RMSSD",
+                f"{subject_id} {condition} - RMSSD",
                 "Time (sec)", "RMSSD (ms)",
-                color, output_folder, f"{condition}_RMSSD.png"
+                color, output_folder, filename
             )
-            self._ts_log(f"  生成: {condition}_RMSSD.png")
+            self._ts_log(f"  生成: {filename}")
 
         # SDNN グラフ
         if 'SDNN' in df.columns:
+            filename = f"{subject_id}_{condition}_SDNN.png"
             self._ts_plot_single(
                 time_col, df['SDNN'].values,
-                f"{condition} - SDNN",
+                f"{subject_id} {condition} - SDNN",
                 "Time (sec)", "SDNN (ms)",
-                color, output_folder, f"{condition}_SDNN.png"
+                color, output_folder, filename
             )
-            self._ts_log(f"  生成: {condition}_SDNN.png")
+            self._ts_log(f"  生成: {filename}")
 
     def _ts_plot_single(
         self,
@@ -329,6 +368,7 @@ class TimeseriesAnalysisMixin:
 
     def _ts_generate_combined_graphs(
         self,
+        subject_id: str,
         condition_data: Dict[str, pd.DataFrame],
         output_folder: str,
         reference_hr: float,
@@ -342,37 +382,40 @@ class TimeseriesAnalysisMixin:
         # HR 統合グラフ
         has_hr = any('HR' in df.columns for df in condition_data.values())
         if has_hr:
+            filename = f"{subject_id}_Combined_HR.png"
             self._ts_plot_combined(
                 condition_data, 'HR',
-                "全条件 - 心拍数 (HR)",
+                f"{subject_id} 全条件 - 心拍数 (HR)",
                 "Time (sec)", "HR (BPM)",
-                output_folder, "Combined_HR.png",
+                output_folder, filename,
                 reference_hr if show_reference else None,
                 target_hr if show_target else None
             )
-            self._ts_log(f"  生成: Combined_HR.png")
+            self._ts_log(f"  生成: {filename}")
 
         # RMSSD 統合グラフ
         has_rmssd = any('RMSSD' in df.columns for df in condition_data.values())
         if has_rmssd:
+            filename = f"{subject_id}_Combined_RMSSD.png"
             self._ts_plot_combined(
                 condition_data, 'RMSSD',
-                "全条件 - RMSSD",
+                f"{subject_id} 全条件 - RMSSD",
                 "Time (sec)", "RMSSD (ms)",
-                output_folder, "Combined_RMSSD.png"
+                output_folder, filename
             )
-            self._ts_log(f"  生成: Combined_RMSSD.png")
+            self._ts_log(f"  生成: {filename}")
 
         # SDNN 統合グラフ
         has_sdnn = any('SDNN' in df.columns for df in condition_data.values())
         if has_sdnn:
+            filename = f"{subject_id}_Combined_SDNN.png"
             self._ts_plot_combined(
                 condition_data, 'SDNN',
-                "全条件 - SDNN",
+                f"{subject_id} 全条件 - SDNN",
                 "Time (sec)", "SDNN (ms)",
-                output_folder, "Combined_SDNN.png"
+                output_folder, filename
             )
-            self._ts_log(f"  生成: Combined_SDNN.png")
+            self._ts_log(f"  生成: {filename}")
 
     def _ts_plot_combined(
         self,
@@ -424,3 +467,103 @@ class TimeseriesAnalysisMixin:
         output_path = os.path.join(output_folder, filename)
         fig.savefig(output_path, dpi=150, bbox_inches='tight')
         plt.close(fig)
+
+    def _ts_find_hr_session_files(self, folder: str) -> List[Tuple[str, str, str, str, str]]:
+        """HRセッションファイルを検索
+
+        Returns:
+            List of tuples: (filepath, device_type, subject_id, timestamp, mode)
+            device_type: 'H10' or 'Verity'
+        """
+        hr_files = []
+
+        # パターン: h10_hr_session_{subject_id}_{timestamp}_{mode}.csv
+        # パターン: verity_hr_session_{subject_id}_{timestamp}_{mode}.csv
+        h10_pattern = re.compile(
+            r"h10_hr_session_(.+?)_(\d{8}_\d{6})_(.+)\.csv$",
+            re.IGNORECASE
+        )
+        verity_pattern = re.compile(
+            r"verity_hr_session_(.+?)_(\d{8}_\d{6})_(.+)\.csv$",
+            re.IGNORECASE
+        )
+
+        for filename in os.listdir(folder):
+            filepath = os.path.join(folder, filename)
+
+            # H10ファイルをチェック
+            match = h10_pattern.match(filename)
+            if match:
+                subject_id = match.group(1)
+                timestamp = match.group(2)
+                mode = match.group(3)
+                hr_files.append((filepath, 'H10', subject_id, timestamp, mode))
+                continue
+
+            # Verityファイルをチェック
+            match = verity_pattern.match(filename)
+            if match:
+                subject_id = match.group(1)
+                timestamp = match.group(2)
+                mode = match.group(3)
+                hr_files.append((filepath, 'Verity', subject_id, timestamp, mode))
+
+        return hr_files
+
+    def _ts_generate_hr_session_graphs(
+        self,
+        hr_files: List[Tuple[str, str, str, str, str]],
+        output_folder: str,
+        reference_hr: float,
+        target_hr: float,
+        show_reference: bool,
+        show_target: bool
+    ) -> None:
+        """HRセッションファイルからHRグラフを生成"""
+        for filepath, device_type, subject_id, timestamp, mode in hr_files:
+            self._ts_log(f"読み込み中: {os.path.basename(filepath)}")
+            try:
+                df = pd.read_csv(filepath)
+
+                # カラム名を確認
+                # 期待: Timestamp, Heart Rate (BPM)
+                if 'Heart Rate (BPM)' not in df.columns:
+                    self._ts_log(f"  警告: 'Heart Rate (BPM)'列がありません。スキップします。")
+                    continue
+
+                if 'Timestamp' not in df.columns:
+                    self._ts_log(f"  警告: 'Timestamp'列がありません。スキップします。")
+                    continue
+
+                # タイムスタンプから経過時間（秒）を計算
+                try:
+                    timestamps = pd.to_datetime(df['Timestamp'])
+                    start_time = timestamps.iloc[0]
+                    elapsed_seconds = (timestamps - start_time).dt.total_seconds().values
+                except Exception as e:
+                    self._ts_log(f"  警告: タイムスタンプ解析失敗: {e}")
+                    # インデックスを使用
+                    elapsed_seconds = np.arange(len(df))
+
+                hr_values = df['Heart Rate (BPM)'].values
+
+                # 条件名（mode）を正規化
+                mode_normalized = self._ts_normalize_condition(mode)
+
+                # グラフ生成
+                color = CONDITION_COLORS.get(mode_normalized, '#666666')
+                filename = f"{subject_id}_{mode_normalized}_{device_type}_HR.png"
+                title = f"{subject_id} {mode_normalized} - 心拍数 ({device_type})"
+
+                self._ts_plot_single(
+                    elapsed_seconds, hr_values,
+                    title,
+                    "Time (sec)", "HR (BPM)",
+                    color, output_folder, filename,
+                    reference_hr if show_reference else None,
+                    target_hr if show_target else None
+                )
+                self._ts_log(f"  生成: {filename}")
+
+            except Exception as e:
+                self._ts_log(f"  エラー: {e}")
