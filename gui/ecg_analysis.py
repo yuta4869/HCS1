@@ -57,7 +57,7 @@ def bandpass_filter(signal_data, fs):
     return filtfilt(b, a, signal_data)
 
 
-def ecg_to_rri(file_path, fs=130):
+def ecg_to_rri(file_path, fs=130, analysis_start_offset=None, analysis_end_offset=None):
     """ECGデータからRRIを算出する"""
     from scipy.signal import find_peaks
     try:
@@ -71,16 +71,44 @@ def ecg_to_rri(file_path, fs=130):
     end_time_real = data['timestamp'].iloc[-1]
     duration_seconds = (end_time_real - start_time_real).total_seconds()
 
-    if duration_seconds < 60:
-        print(f"  -> 短いデータを検出 ({duration_seconds:.1f}秒): 全期間を解析します")
-        analysis_start_time = start_time_real
-        analysis_end_time = end_time_real
-        data_filtered = data
-    else:
-        print(f"  -> 長いデータを検出 ({duration_seconds:.1f}秒): 30秒後から5分間を解析します")
-        analysis_start_time = start_time_real + pd.Timedelta(seconds=30)
-        analysis_end_time = start_time_real + pd.Timedelta(minutes=5, seconds=30)
+    custom_window = analysis_start_offset is not None or analysis_end_offset is not None
+
+    if custom_window:
+        start_offset = max(0.0, analysis_start_offset or 0.0)
+        analysis_start_time = start_time_real + pd.Timedelta(seconds=start_offset)
+        if analysis_end_offset is not None:
+            if analysis_end_offset <= start_offset:
+                print("  -> エラー: 解析終了時刻が開始時刻以下です。")
+                return np.array([]), None, None
+            analysis_end_time = start_time_real + pd.Timedelta(seconds=analysis_end_offset)
+        else:
+            analysis_end_time = end_time_real
+
+        if analysis_start_time >= end_time_real:
+            print("  -> エラー: 指定された解析開始時刻がデータ範囲外です。")
+            return np.array([]), None, None
+
+        if analysis_end_time > end_time_real:
+            analysis_end_time = end_time_real
+
+        if analysis_end_time <= analysis_start_time:
+            print("  -> エラー: 指定された解析区間が無効です。")
+            return np.array([]), None, None
+
         data_filtered = data[(data['timestamp'] >= analysis_start_time) & (data['timestamp'] <= analysis_end_time)]
+        actual_end_offset = (analysis_end_time - start_time_real).total_seconds()
+        print(f"  -> 指定区間で解析: {start_offset:.1f}秒 〜 {actual_end_offset:.1f}秒")
+    else:
+        if duration_seconds < 60:
+            print(f"  -> 短いデータを検出 ({duration_seconds:.1f}秒): 全期間を解析します")
+            analysis_start_time = start_time_real
+            analysis_end_time = end_time_real
+            data_filtered = data
+        else:
+            print(f"  -> 長いデータを検出 ({duration_seconds:.1f}秒): 30秒後から5分間を解析します")
+            analysis_start_time = start_time_real + pd.Timedelta(seconds=30)
+            analysis_end_time = start_time_real + pd.Timedelta(minutes=5, seconds=30)
+            data_filtered = data[(data['timestamp'] >= analysis_start_time) & (data['timestamp'] <= analysis_end_time)]
 
     if data_filtered.empty:
         print("  -> エラー: 解析対象期間のデータが空です。")
@@ -100,23 +128,52 @@ def ecg_to_rri(file_path, fs=130):
     return rri_data, analysis_start_time, analysis_end_time
 
 
-def calculate_hrv_indices(file_path, label, fs=130):
+def calculate_hrv_indices(
+    file_path,
+    label,
+    fs=130,
+    analysis_start_offset=None,
+    analysis_end_offset=None,
+    resampling_freq=1.0,
+    quantile_low=0.038,
+    quantile_high=0.962,
+    min_hr=45.0,
+    max_hr=210.0,
+    analysis_window_seconds=30.0,
+):
     """指定されたファイルを解析し、時系列データと全体LF/HF値を返す"""
     from scipy import interpolate
     import scipy.signal
 
     print(f"--- 解析開始: {label} ({os.path.basename(file_path)}) ---")
-    rri_data, start_time, end_time = ecg_to_rri(file_path, fs)
+    rri_data, start_time, end_time = ecg_to_rri(
+        file_path,
+        fs,
+        analysis_start_offset=analysis_start_offset,
+        analysis_end_offset=analysis_end_offset
+    )
 
     if len(rri_data) == 0:
         return None, None
+
+    if resampling_freq <= 0:
+        resampling_freq = 1.0
+    quantile_low = max(0.0, min(quantile_low, 1.0))
+    quantile_high = max(0.0, min(quantile_high, 1.0))
+    if quantile_high <= quantile_low:
+        quantile_low, quantile_high = 0.038, 0.962
+    if min_hr <= 0:
+        min_hr = 45.0
+    if max_hr <= min_hr:
+        max_hr = min_hr + 1.0
+    if analysis_window_seconds <= 0:
+        analysis_window_seconds = 30.0
 
     time_data = list(accumulate(rri_data / 1000))
     if not time_data:
         return None, None
 
-    resampling_freq = 1
-    duration_total = int(time_data[-1])
+    duration_total = time_data[-1]
     time_axis = np.arange(0, duration_total, 1 / resampling_freq)
 
     if len(time_data) < 4:
@@ -126,17 +183,17 @@ def calculate_hrv_indices(file_path, label, fs=130):
     spline_func = interpolate.interp1d(time_data, rri_data, fill_value="extrapolate", kind='cubic')
     rri = spline_func(time_axis)
 
-    if len(rri) > 10:
-        low_threshold = np.quantile(rri, 0.038)
-        high_threshold = np.quantile(rri, 0.962)
+    min_samples_for_quantile = int(max(resampling_freq * 10, 10))
+    if len(rri) > min_samples_for_quantile:
+        low_threshold = np.quantile(rri, quantile_low)
+        high_threshold = np.quantile(rri, quantile_high)
         rri[(rri < low_threshold) | (rri > high_threshold)] = np.nan
 
     df_temp = pd.DataFrame(data=rri, index=time_axis, columns=["rri"])
     df_temp.interpolate(method='spline', order=3, inplace=True, limit_direction='both')
     rri = df_temp["rri"].values
 
-    MinHR, MaxHR = 45, 210
-    rri[(rri > 60000 / MinHR) | (rri < 60000 / MaxHR)] = np.nan
+    rri[(rri > 60000 / min_hr) | (rri < 60000 / max_hr)] = np.nan
     df_temp = pd.DataFrame(data=rri, index=time_axis, columns=["rri"])
     df_temp.interpolate(method='spline', order=3, inplace=True, limit_direction='both')
     rri = df_temp["rri"].values
@@ -165,13 +222,17 @@ def calculate_hrv_indices(file_path, label, fs=130):
     overall_lf_hf_val = LF_total / HF_total if HF_total != 0 else 0
     print(f"  -> 全体LF/HF値: {overall_lf_hf_val:.4f}")
 
-    if len(rri) >= 30:
-        analysis_window = 30
-    elif len(rri) >= 10:
-        analysis_window = 10
-        print(f"  -> データが短いため、ウィンドウサイズを {analysis_window}秒 に短縮して解析します。")
+    target_window_samples = max(int(round(analysis_window_seconds * resampling_freq)), 1)
+    min_window_samples = max(int(round(10 * resampling_freq)), 1)
+
+    if len(rri) >= target_window_samples:
+        analysis_window = target_window_samples
+    elif len(rri) >= min_window_samples:
+        analysis_window = len(rri)
+        actual_seconds = analysis_window / resampling_freq
+        print(f"  -> データが短いため、ウィンドウサイズを {actual_seconds:.1f}秒 に短縮して解析します。")
     else:
-        print("  -> データが短すぎて解析できません（10秒未満）。")
+        print("  -> データが短すぎて解析できません（約10秒未満）。")
         return None, None
 
     LF_HF_sliding = []
@@ -224,7 +285,19 @@ def calculate_hrv_indices(file_path, label, fs=130):
     return sliding_result_df, overall_lf_hf_val
 
 
-def run_batch_analysis(files_map, output_dir):
+def run_batch_analysis(
+    files_map,
+    output_dir,
+    analysis_start_offset=None,
+    analysis_end_offset=None,
+    sensor_sample_rate=130.0,
+    resampling_freq=1.0,
+    quantile_low=0.038,
+    quantile_high=0.962,
+    min_hr=45.0,
+    max_hr=210.0,
+    analysis_window_seconds=30.0,
+):
     """バッチ解析を実行し、結果をExcelファイルに保存する"""
     os.makedirs(output_dir, exist_ok=True)
     combined_df = None
@@ -236,7 +309,19 @@ def run_batch_analysis(files_map, output_dir):
             print(f"警告: ファイルが見つかりません -> {file_path}")
             continue
 
-        sliding_df, overall_lfhf = calculate_hrv_indices(file_path, label)
+        sliding_df, overall_lfhf = calculate_hrv_indices(
+            file_path,
+            label,
+            fs=sensor_sample_rate,
+            analysis_start_offset=analysis_start_offset,
+            analysis_end_offset=analysis_end_offset,
+            resampling_freq=resampling_freq,
+            quantile_low=quantile_low,
+            quantile_high=quantile_high,
+            min_hr=min_hr,
+            max_hr=max_hr,
+            analysis_window_seconds=analysis_window_seconds,
+        )
 
         if sliding_df is not None and not sliding_df.empty:
             sliding_output_path = os.path.join(output_dir, f"{label}_result.xlsx")

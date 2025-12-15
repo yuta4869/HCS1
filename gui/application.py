@@ -660,9 +660,90 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         ttk.Label(input_frame, textvariable=self.ecg_output_dir_var, foreground="grey").grid(row=1, column=1, sticky="ew", padx=5, pady=5)
         ttk.Button(input_frame, text="参照...", command=self._browse_ecg_output_folder).grid(row=1, column=2, padx=5, pady=5)
 
+        # --- 解析区間設定 ---
+        window_frame = ttk.LabelFrame(main_frame, text="解析区間設定（録画開始からの経過秒）", padding="10")
+        window_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        window_frame.columnconfigure(1, weight=1)
+        window_frame.columnconfigure(3, weight=1)
+
+        self.ecg_window_start_var = tk.DoubleVar(value=30.0)
+        self.ecg_window_end_var = tk.DoubleVar(value=330.0)
+
+        ttk.Label(window_frame, text="開始 (秒):").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        ttk.Spinbox(
+            window_frame, from_=0, to=3600, increment=5,
+            textvariable=self.ecg_window_start_var, width=8
+        ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+
+        ttk.Label(window_frame, text="終了 (秒):").grid(row=0, column=2, sticky="w", padx=5, pady=5)
+        ttk.Spinbox(
+            window_frame, from_=10, to=7200, increment=5,
+            textvariable=self.ecg_window_end_var, width=8
+        ).grid(row=0, column=3, sticky="w", padx=5, pady=5)
+
+        ttk.Label(window_frame, text="※終了時刻は開始より大きい必要があります。").grid(
+            row=1, column=0, columnspan=4, sticky="w", padx=5, pady=(0, 5)
+        )
+
+        # --- 解析パラメータ設定 ---
+        param_frame = ttk.LabelFrame(main_frame, text="解析パラメータ設定", padding="10")
+        param_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+        for col in range(4):
+            param_frame.columnconfigure(col, weight=1)
+
+        self.ecg_sensor_fs_var = tk.DoubleVar(value=130.0)
+        self.ecg_resampling_freq_var = tk.DoubleVar(value=1.0)
+        self.ecg_quantile_low_var = tk.DoubleVar(value=0.038)
+        self.ecg_quantile_high_var = tk.DoubleVar(value=0.962)
+        self.ecg_min_hr_var = tk.DoubleVar(value=45.0)
+        self.ecg_max_hr_var = tk.DoubleVar(value=210.0)
+        self.ecg_window_length_var = tk.DoubleVar(value=30.0)
+
+        ttk.Label(param_frame, text="センサーサンプリング周波数 (Hz):").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        ttk.Spinbox(
+            param_frame, from_=10, to=1000, increment=5,
+            textvariable=self.ecg_sensor_fs_var, width=8
+        ).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+
+        ttk.Label(param_frame, text="リサンプリング周波数 (Hz):").grid(row=0, column=2, sticky="w", padx=5, pady=5)
+        ttk.Spinbox(
+            param_frame, from_=0.2, to=10.0, increment=0.1,
+            textvariable=self.ecg_resampling_freq_var, width=8
+        ).grid(row=0, column=3, sticky="w", padx=5, pady=5)
+
+        ttk.Label(param_frame, text="外れ値除去 下位パーセンタイル:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        ttk.Spinbox(
+            param_frame, from_=0.0, to=0.5, increment=0.001,
+            textvariable=self.ecg_quantile_low_var, width=8
+        ).grid(row=1, column=1, sticky="w", padx=5, pady=5)
+
+        ttk.Label(param_frame, text="外れ値除去 上位パーセンタイル:").grid(row=1, column=2, sticky="w", padx=5, pady=5)
+        ttk.Spinbox(
+            param_frame, from_=0.5, to=1.0, increment=0.001,
+            textvariable=self.ecg_quantile_high_var, width=8
+        ).grid(row=1, column=3, sticky="w", padx=5, pady=5)
+
+        ttk.Label(param_frame, text="心拍数範囲 (最小BPM):").grid(row=2, column=0, sticky="w", padx=5, pady=5)
+        ttk.Spinbox(
+            param_frame, from_=20, to=100, increment=1,
+            textvariable=self.ecg_min_hr_var, width=8
+        ).grid(row=2, column=1, sticky="w", padx=5, pady=5)
+
+        ttk.Label(param_frame, text="心拍数範囲 (最大BPM):").grid(row=2, column=2, sticky="w", padx=5, pady=5)
+        ttk.Spinbox(
+            param_frame, from_=80, to=250, increment=1,
+            textvariable=self.ecg_max_hr_var, width=8
+        ).grid(row=2, column=3, sticky="w", padx=5, pady=5)
+
+        ttk.Label(param_frame, text="LF/HF解析ウィンドウ (秒):").grid(row=3, column=0, sticky="w", padx=5, pady=5)
+        ttk.Spinbox(
+            param_frame, from_=5, to=120, increment=5,
+            textvariable=self.ecg_window_length_var, width=8
+        ).grid(row=3, column=1, sticky="w", padx=5, pady=5)
+
         # --- 実行ボタン ---
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=10)
+        button_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=10)
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
         button_frame.columnconfigure(2, weight=1)
@@ -679,14 +760,14 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         # --- ステータス表示 ---
         self.ecg_status_var = tk.StringVar(value="フォルダを選択して解析を開始してください。")
         status_label = ttk.Label(main_frame, textvariable=self.ecg_status_var, foreground="blue", wraplength=800)
-        status_label.grid(row=2, column=0, sticky="w", padx=10, pady=5)
+        status_label.grid(row=4, column=0, sticky="w", padx=10, pady=5)
 
         # --- 結果プレビュー用フレーム ---
         preview_frame = ttk.LabelFrame(main_frame, text="解析結果プレビュー", padding="10")
-        preview_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.grid(row=5, column=0, sticky="nsew", padx=5, pady=5)
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(3, weight=1)
+        main_frame.rowconfigure(5, weight=1)
 
         self.ecg_preview_canvas_frame = ttk.Frame(preview_frame)
         self.ecg_preview_canvas_frame.grid(row=0, column=0, sticky="nsew")
@@ -780,6 +861,41 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
             messagebox.showwarning("フォルダ未選択", "まず解析対象のフォルダを選択してください。")
             return
 
+        try:
+            start_offset = float(self.ecg_window_start_var.get())
+            end_offset = float(self.ecg_window_end_var.get())
+            sensor_fs = float(self.ecg_sensor_fs_var.get())
+            resampling_freq = float(self.ecg_resampling_freq_var.get())
+            quantile_low = float(self.ecg_quantile_low_var.get())
+            quantile_high = float(self.ecg_quantile_high_var.get())
+            min_hr = float(self.ecg_min_hr_var.get())
+            max_hr = float(self.ecg_max_hr_var.get())
+            window_length = float(self.ecg_window_length_var.get())
+        except (tk.TclError, ValueError):
+            messagebox.showerror("入力エラー", "解析パラメータに無効な値があります。数値を入力してください。")
+            return
+
+        if start_offset < 0:
+            start_offset = 0.0
+        if end_offset <= start_offset:
+            messagebox.showerror("入力エラー", "終了時刻は開始時刻より大きくしてください。")
+            return
+        if sensor_fs <= 0:
+            messagebox.showerror("入力エラー", "センサーサンプリング周波数は0より大きい必要があります。")
+            return
+        if resampling_freq <= 0:
+            messagebox.showerror("入力エラー", "リサンプリング周波数は0より大きい必要があります。")
+            return
+        if not (0 <= quantile_low < quantile_high <= 1):
+            messagebox.showerror("入力エラー", "外れ値除去のパーセンタイルは 0〜1 の範囲で下限 < 上限 となるよう設定してください。")
+            return
+        if min_hr <= 0 or max_hr <= 0 or min_hr >= max_hr:
+            messagebox.showerror("入力エラー", "心拍数範囲は正の値で、最小 < 最大 となるよう設定してください。")
+            return
+        if window_length <= 0:
+            messagebox.showerror("入力エラー", "解析ウィンドウは正の値にしてください。")
+            return
+
         self.ecg_run_button.config(state=tk.DISABLED)
         self.ecg_status_var.set("解析を実行中です。完了するまでお待ちください。")
         self.update_idletasks()
@@ -810,7 +926,19 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
                         subject_dir = os.path.join(output_dir, subject_id)
                         ordered_files = {condition: files_by_condition[condition] for condition in ANALYS_CONDITION_ORDER}
                         print(f"\n=== {subject_id} の解析を開始します ===")
-                        analys_run_batch_analysis(ordered_files, subject_dir)
+                        analys_run_batch_analysis(
+                            ordered_files,
+                            subject_dir,
+                            analysis_start_offset=start_offset,
+                            analysis_end_offset=end_offset,
+                            sensor_sample_rate=sensor_fs,
+                            resampling_freq=resampling_freq,
+                            quantile_low=quantile_low,
+                            quantile_high=quantile_high,
+                            min_hr=min_hr,
+                            max_hr=max_hr,
+                            analysis_window_seconds=window_length
+                        )
 
                         combined_file = os.path.join(subject_dir, "Combined_HRV_Analysis.xlsx")
                         if os.path.exists(combined_file):
