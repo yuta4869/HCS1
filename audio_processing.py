@@ -420,8 +420,13 @@ class AudioProcessor:
 
         self.sample_rate: int = 16000
         self.channels: int = 1
-        self.chunk_size: int = 1024
+        # config.pyから設定を読み込み（Linux/Ubuntu向けの安定性設定）
+        self.chunk_size: int = getattr(config, 'AUDIO_CHUNK_SIZE', 2048)
         self.silent_threshold: float = 0.03
+
+        # Linux/Ubuntu向けの安定性設定
+        # input overflow対策: バッファを大きくし、latencyを設定
+        self.stream_latency = getattr(config, 'AUDIO_LATENCY', "high")
         self.min_record_seconds: float = 1.0 # Will be used for VAD
         self.required_silent_seconds: float = 1.3
         self.min_audio_length: float = 0.3
@@ -472,9 +477,22 @@ class AudioProcessor:
 
     def _stream_input_loop(self):
         """The main loop for the audio input stream."""
+        overflow_count = 0
+        last_overflow_log_time = 0
+
         def _stream_callback(indata: np.ndarray, frames: int, time_info, status) -> None:
+            nonlocal overflow_count, last_overflow_log_time
             if status:
-                print(f"Stream status: {status}", file=sys.stderr)
+                # input overflowは頻繁に起こりうるので、ログを間引く
+                if "input overflow" in str(status).lower():
+                    overflow_count += 1
+                    current_time = time.time()
+                    # 10秒に1回だけログ出力
+                    if current_time - last_overflow_log_time > 10:
+                        print(f"Stream status: {status} (count: {overflow_count})", file=sys.stderr)
+                        last_overflow_log_time = current_time
+                else:
+                    print(f"Stream status: {status}", file=sys.stderr)
             self.audio_q.put(indata.copy())
 
         try:
@@ -492,11 +510,12 @@ class AudioProcessor:
                     dev = sd.query_devices(default_idx)
                     device_info = f" (デフォルト: [{default_idx}] {dev['name']})"
 
-            print(f"Audio stream thread started.{device_info}")
+            print(f"Audio stream thread started.{device_info} (latency: {self.stream_latency})")
             with sd.InputStream(samplerate=self.sample_rate,
                                 channels=self.channels,
                                 blocksize=self.chunk_size,
                                 device=self.input_device_index,
+                                latency=self.stream_latency,
                                 callback=_stream_callback):
                 while not self.stream_stop_event.is_set():
                     time.sleep(0.1)
@@ -644,16 +663,27 @@ class AudioProcessor:
 
         rec_start_dt: Optional[datetime.datetime] = None
         rec_end_dt: Optional[datetime.datetime] = None
+        overflow_count = [0]  # リストにしてclosure内で変更可能に
+        last_overflow_log = [0]
 
         def callback(indata: np.ndarray, frames: int, time_info, status) -> None:
-            if status: print(f"Recording status: {status}", file=sys.stderr)
+            if status:
+                # input overflowのログを間引く
+                if "input overflow" in str(status).lower():
+                    overflow_count[0] += 1
+                    current_time = time.time()
+                    if current_time - last_overflow_log[0] > 10:
+                        print(f"Recording status: {status} (count: {overflow_count[0]})", file=sys.stderr)
+                        last_overflow_log[0] = current_time
+                else:
+                    print(f"Recording status: {status}", file=sys.stderr)
             audio_q.put(indata.copy())
 
         try:
             os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
             with sd.InputStream(samplerate=self.sample_rate, channels=self.channels,
-                              callback=callback, blocksize=1024, dtype='float32',
-                              device=self.input_device_index):
+                              callback=callback, blocksize=self.chunk_size, dtype='float32',
+                              device=self.input_device_index, latency=self.stream_latency):
                 recorded_chunks: List[np.ndarray] = []
                 silent_start_time: Optional[float] = None
                 recording_start_time: Optional[float] = None
