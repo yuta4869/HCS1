@@ -8,7 +8,7 @@ A conversation system that integrates heart rate monitoring with speech prosody 
 
 ## 📥 ダウンロード / Download
 
-### 最新版 (v6.16.0)
+### 最新版 (v7.3.0)
 
 **方法1: スタンドアロンアプリ (推奨)**
 
@@ -28,10 +28,10 @@ cd HCS1
 **方法3: 特定バージョンをダウンロード**
 ```bash
 # 最新リリース
-git clone --branch v6.16.0 --depth 1 https://github.com/yuta4869/HCS1.git
+git clone --branch v7.3.0 --depth 1 https://github.com/yuta4869/HCS1.git
 
 # または ZIP でダウンロード
-# https://github.com/yuta4869/HCS1/archive/refs/tags/v6.16.0.zip
+# https://github.com/yuta4869/HCS1/archive/refs/tags/v7.3.0.zip
 ```
 
 ---
@@ -221,11 +221,45 @@ Excelファイル（.xlsx）に以下の形式でデータを入力:
 #### ログファイル
 
 会話中のデータは `logs/` フォルダに自動保存されます:
-- `conversation_log_*.csv` - 会話履歴
-- `h10_ecg_session_*.csv` - ECG生データ（130Hz）
-- `h10_hr_session_*.csv` - 心拍数データ
-- `h10_sdnn_session_*.csv` - SDNN時系列データ
-- `verity_hr_session_*.csv` - Verity Senseの心拍数
+
+| ファイル名 | 内容 |
+|-----------|------|
+| `conversation_log_{subject_id}_{timestamp}.txt` | 会話本文（全セッション通し） |
+| `conversation_log_{subject_id}_{session_timestamp}_{mode}.csv` | 会話履歴CSV |
+| `verity_hr_prosody_{subject_id}_{session_timestamp}_{mode}.csv` | Verity HR + 韻律レベル |
+| `verity_hr_session_{subject_id}_{session_timestamp}_{mode}.csv` | Verity Sense心拍数 |
+| `h10_ecg_session_{subject_id}_{session_timestamp}_{mode}.csv` | H10 ECG生データ（130Hz） |
+| `h10_hr_session_{subject_id}_{session_timestamp}_{mode}.csv` | H10 心拍数 |
+| `h10_sdnn_session_{subject_id}_{session_timestamp}_{mode}.csv` | H10 SDNN時系列 |
+| `heartrate_after_tts_{subject_id}_{session_timestamp}_{mode}.csv` | TTS後心拍数 |
+| `heartrate_at_recording_start_{subject_id}_{session_timestamp}_{mode}.csv` | 録音開始時心拍数 |
+| `interaction_events_{subject_id}_{session_timestamp}_{mode}.csv` | 対話イベントログ |
+
+- `{subject_id}`: 被験者番号（例: No1）
+- `{session_timestamp}`: セッション開始時刻（例: 20250728_160807）
+- `{mode}`: 条件名（Sin/HRF/Fixed）
+
+#### ECG/HRV解析 出力ファイル
+
+| ファイル名 | 内容 |
+|-----------|------|
+| `{subject_id}_{condition}_result.xlsx` | 時系列LF/HF・RMSSD・SDNN（30秒スライディングウィンドウ） |
+| `{subject_id}_{condition}_resultLFHF5min.xlsx` | 全体平均LF/HF |
+| `{subject_id}_Combined_HRV_Analysis.xlsx` | 全条件統合結果 |
+| `LFHF_Boxplot.png` | LF/HF箱ひげ図（複数被験者統合時） |
+| `RMSSD_Boxplot.png` | RMSSD箱ひげ図 |
+| `SDNN_Boxplot.png` | SDNN箱ひげ図 |
+
+#### 時系列解析 出力ファイル
+
+| ファイル名 | 内容 |
+|-----------|------|
+| `{subject_id}_{condition}_RMSSD.png` | 条件別RMSSDグラフ |
+| `{subject_id}_{condition}_SDNN.png` | 条件別SDNNグラフ |
+| `{subject_id}_{condition}_{H10\|Verity}_HR.png` | 条件別HRグラフ（デバイス別） |
+| `{subject_id}_Combined_RMSSD.png` | 全条件統合RMSSDグラフ |
+| `{subject_id}_Combined_SDNN.png` | 全条件統合SDNNグラフ |
+| `{subject_id}_Combined_HR.png` | 全条件統合HRグラフ |
 
 ---
 
@@ -414,11 +448,45 @@ Excel file (.xlsx) with the following format:
 #### Log Files
 
 Data during conversation is auto-saved to `logs/` folder:
-- `conversation_log_*.csv` - Conversation history
-- `h10_ecg_session_*.csv` - Raw ECG data (130Hz)
-- `h10_hr_session_*.csv` - Heart rate data
-- `h10_sdnn_session_*.csv` - SDNN time series data
-- `verity_hr_session_*.csv` - Verity Sense heart rate
+
+| Filename | Content |
+|----------|---------|
+| `conversation_log_{subject_id}_{timestamp}.txt` | Conversation text (all sessions) |
+| `conversation_log_{subject_id}_{session_timestamp}_{mode}.csv` | Conversation history CSV |
+| `verity_hr_prosody_{subject_id}_{session_timestamp}_{mode}.csv` | Verity HR + prosody level |
+| `verity_hr_session_{subject_id}_{session_timestamp}_{mode}.csv` | Verity Sense heart rate |
+| `h10_ecg_session_{subject_id}_{session_timestamp}_{mode}.csv` | H10 raw ECG (130Hz) |
+| `h10_hr_session_{subject_id}_{session_timestamp}_{mode}.csv` | H10 heart rate |
+| `h10_sdnn_session_{subject_id}_{session_timestamp}_{mode}.csv` | H10 SDNN time series |
+| `heartrate_after_tts_{subject_id}_{session_timestamp}_{mode}.csv` | HR after TTS |
+| `heartrate_at_recording_start_{subject_id}_{session_timestamp}_{mode}.csv` | HR at recording start |
+| `interaction_events_{subject_id}_{session_timestamp}_{mode}.csv` | Interaction event log |
+
+- `{subject_id}`: Subject ID (e.g., No1)
+- `{session_timestamp}`: Session start time (e.g., 20250728_160807)
+- `{mode}`: Condition name (Sin/HRF/Fixed)
+
+#### ECG/HRV Analysis Output Files
+
+| Filename | Content |
+|----------|---------|
+| `{subject_id}_{condition}_result.xlsx` | Time series LF/HF, RMSSD, SDNN (30-sec sliding window) |
+| `{subject_id}_{condition}_resultLFHF5min.xlsx` | Overall average LF/HF |
+| `{subject_id}_Combined_HRV_Analysis.xlsx` | Combined results for all conditions |
+| `LFHF_Boxplot.png` | LF/HF box plot (multi-subject) |
+| `RMSSD_Boxplot.png` | RMSSD box plot |
+| `SDNN_Boxplot.png` | SDNN box plot |
+
+#### Timeseries Analysis Output Files
+
+| Filename | Content |
+|----------|---------|
+| `{subject_id}_{condition}_RMSSD.png` | RMSSD graph by condition |
+| `{subject_id}_{condition}_SDNN.png` | SDNN graph by condition |
+| `{subject_id}_{condition}_{H10\|Verity}_HR.png` | HR graph by condition (per device) |
+| `{subject_id}_Combined_RMSSD.png` | Combined RMSSD graph (all conditions) |
+| `{subject_id}_Combined_SDNN.png` | Combined SDNN graph (all conditions) |
+| `{subject_id}_Combined_HR.png` | Combined HR graph (all conditions) |
 
 ---
 
@@ -472,6 +540,9 @@ MIT License
 
 ## 📝 Version History
 
+- **v7.3.0** - Output file naming with subject_id and mode, timeseries analysis tab
+- **v7.2.0** - Timeseries analysis feature for individual subject HR/RMSSD/SDNN graphs
+- **v7.1.0** - Target HR line display in realtime monitor when HRF2 enabled
 - **v6.16.0** - Robust Control (H∞ loop shaping) added to HRF2 control modes
 - **v6.13.1** - Scrollable conversation tab for small windows
 - **v6.13.0** - SDNN CSV logging from ECG realtime monitor
