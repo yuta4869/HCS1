@@ -326,6 +326,15 @@ class ProsodySettings:
         gain_type = self.hrf2_controller.get_gain_schedule_gain_type()
         return gain_type.value if gain_type else "---"
 
+    # --- AdaptiveMPC用メソッド ---
+    def get_hrf2_adaptive_mpc_model_params(self) -> tuple:
+        """HRF2のAdaptiveMPCモデルパラメータ(a, b)を取得"""
+        return self.hrf2_controller.get_adaptive_mpc_model_params()
+
+    def get_hrf2_adaptive_mpc_config(self):
+        """HRF2のAdaptiveMPC設定を取得"""
+        return self.hrf2_controller.get_adaptive_mpc_config()
+
 
 class VoicevoxManager:
     @staticmethod

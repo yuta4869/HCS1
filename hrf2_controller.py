@@ -25,6 +25,7 @@ class ControlMode(Enum):
     PID = "PID"
     ADAPTIVE = "Adaptive"
     GAIN_SCHEDULED = "GainScheduled"
+    ADAPTIVE_MPC = "AdaptiveMPC"
 
 
 @dataclass
@@ -124,6 +125,325 @@ class GainScheduleConfig:
 
     # ゲイン切替時の平滑化係数（0-1, 1で即時切替）
     smoothing_factor: float = 0.3
+
+
+@dataclass
+class AdaptiveMPCConfig:
+    """
+    適応モデル予測制御 (Adaptive MPC) のパラメータ設定
+
+    心拍数応答モデル: y(k+1) = a * y(k) + b * u(k-d)
+    - a: 自己回帰係数（心拍の慣性）
+    - b: 入力ゲイン（抑揚→心拍の影響度）
+    - d: むだ時間（入力の遅延ステップ数）
+
+    MPC最適化: J = Σ(y_pred - target)² + λ * Σ(Δu)²
+    """
+    # 予測モデル初期パラメータ
+    initial_a: float = 0.95  # 自己回帰係数（0.9-0.99、心拍の持続性）
+    initial_b: float = 0.5   # 入力ゲイン（抑揚の影響度）
+
+    # むだ時間（ステップ数、1ステップ≈1秒）
+    delay_steps: int = 5  # 約5秒の遅延
+
+    # RLS（再帰的最小二乗法）パラメータ
+    rls_forgetting_factor: float = 0.98  # 忘却係数（0.95-0.99）
+    rls_initial_covariance: float = 100.0  # 初期共分散（大きいほど適応が速い）
+
+    # MPCパラメータ
+    prediction_horizon: int = 10  # 予測ホライズン（ステップ数）
+    control_horizon: int = 3      # 制御ホライズン（実際に計算する入力数）
+    output_weight: float = 1.0    # 出力誤差の重み
+    input_change_weight: float = 0.1  # 入力変化量の重み（λ）
+
+    # 制約
+    u_min: float = 0.0   # 抑揚の最小値
+    u_max: float = 2.0   # 抑揚の最大値
+    du_max: float = 0.3  # 1ステップあたりの最大変化量
+
+    # パラメータ制約（安定性のため）
+    a_min: float = 0.8
+    a_max: float = 0.99
+    b_min: float = 0.1
+    b_max: float = 2.0
+
+    # デッドバンド
+    deadband: float = 2.0  # BPM
+
+
+class AdaptiveMPCController:
+    """
+    適応モデル予測制御 (Adaptive MPC) コントローラー
+
+    特徴:
+    1. オンラインシステム同定: RLSで心拍応答モデルを適応的に推定
+    2. 予測制御: 将来の心拍数を予測し、最適な抑揚系列を計算
+    3. 制約付き最適化: 抑揚の範囲と変化量を制約
+
+    心拍数フィードバックの課題への対応:
+    - 個人差 → オンライン同定で対応
+    - 応答遅延 → むだ時間補償
+    - 非線形性 → 予測制御で先読み
+    """
+
+    def __init__(self, config: Optional[AdaptiveMPCConfig] = None):
+        self.config = config or AdaptiveMPCConfig()
+
+        # 予測モデルパラメータ
+        self._a: float = self.config.initial_a  # 自己回帰係数
+        self._b: float = self.config.initial_b  # 入力ゲイン
+
+        # RLS推定器の状態
+        self._P: float = self.config.rls_initial_covariance  # 共分散（スカラー近似）
+        self._P_a: float = self.config.rls_initial_covariance
+        self._P_b: float = self.config.rls_initial_covariance
+
+        # 履歴バッファ
+        self._hr_history: List[float] = []  # 心拍数履歴
+        self._u_history: List[float] = []   # 入力履歴（むだ時間補償用）
+        self._max_history: int = 50
+
+        # 目標心拍数
+        self._target_hr: float = 70.0
+
+        # 時間管理
+        self._last_time: Optional[float] = None
+        self._sample_count: int = 0
+
+        # 最後の出力
+        self._last_output: float = 1.0
+
+    def reset(self) -> None:
+        """制御状態をリセット"""
+        self._a = self.config.initial_a
+        self._b = self.config.initial_b
+        self._P_a = self.config.rls_initial_covariance
+        self._P_b = self.config.rls_initial_covariance
+        self._hr_history.clear()
+        self._u_history.clear()
+        self._last_time = None
+        self._sample_count = 0
+        self._last_output = 1.0
+        print("AdaptiveMPC Controller reset")
+
+    def set_target_hr(self, target_hr: float) -> None:
+        """目標心拍数を設定"""
+        self._target_hr = max(40.0, min(180.0, target_hr))
+
+    def get_target_hr(self) -> float:
+        return self._target_hr
+
+    def _update_model_rls(self, y_new: float) -> None:
+        """
+        RLS（再帰的最小二乗法）でモデルパラメータを更新
+
+        モデル: y(k) = a * y(k-1) + b * u(k-1-d)
+        """
+        if len(self._hr_history) < 2:
+            return
+
+        d = self.config.delay_steps
+        if len(self._u_history) <= d:
+            return
+
+        # 回帰ベクトル
+        y_prev = self._hr_history[-1]
+        u_delayed = self._u_history[-(d + 1)] if len(self._u_history) > d else 1.0
+
+        # 予測誤差
+        y_pred = self._a * y_prev + self._b * (u_delayed - 1.0)  # u=1.0が基準
+        e = y_new - y_pred
+
+        # RLS更新（簡略化: 各パラメータを個別に更新）
+        lambda_f = self.config.rls_forgetting_factor
+
+        # aの更新
+        k_a = self._P_a * y_prev / (lambda_f + self._P_a * y_prev * y_prev)
+        self._a += k_a * e
+        self._P_a = (1 / lambda_f) * (self._P_a - k_a * y_prev * self._P_a)
+
+        # bの更新
+        u_centered = u_delayed - 1.0
+        if abs(u_centered) > 0.01:  # 入力変化がある場合のみ
+            k_b = self._P_b * u_centered / (lambda_f + self._P_b * u_centered * u_centered)
+            self._b += k_b * e
+            self._P_b = (1 / lambda_f) * (self._P_b - k_b * u_centered * self._P_b)
+
+        # パラメータをクランプ
+        self._a = max(self.config.a_min, min(self.config.a_max, self._a))
+        self._b = max(self.config.b_min, min(self.config.b_max, self._b))
+
+        # 共分散の発散防止
+        self._P_a = max(0.1, min(1000.0, self._P_a))
+        self._P_b = max(0.1, min(1000.0, self._P_b))
+
+    def _predict_trajectory(self, y0: float, u_sequence: List[float]) -> List[float]:
+        """
+        将来の心拍数軌道を予測
+
+        Args:
+            y0: 現在の心拍数
+            u_sequence: 将来の入力系列
+
+        Returns:
+            予測心拍数軌道
+        """
+        y_pred = [y0]
+        d = self.config.delay_steps
+
+        # 過去の入力を含めた系列を作成
+        u_full = list(self._u_history[-d:]) + u_sequence if len(self._u_history) >= d else [1.0] * d + u_sequence
+
+        for k in range(len(u_sequence)):
+            y_prev = y_pred[-1]
+            # むだ時間を考慮した入力
+            u_delayed_idx = k  # u_fullの中でd個前
+            u_delayed = u_full[u_delayed_idx] if u_delayed_idx >= 0 else 1.0
+            y_next = self._a * y_prev + self._b * (u_delayed - 1.0)
+            y_pred.append(y_next)
+
+        return y_pred[1:]  # 最初の値（現在値）は除く
+
+    def _solve_mpc(self, current_hr: float) -> float:
+        """
+        MPC最適化問題を解いて最適な入力を計算
+
+        簡略化: 勾配降下法による近似解
+        """
+        N = self.config.prediction_horizon
+        M = self.config.control_horizon
+
+        # 初期入力系列（現在の出力を維持）
+        u_seq = [self._last_output] * N
+
+        # 簡易最適化（数回の反復）
+        for _ in range(5):
+            # 現在のコスト
+            y_pred = self._predict_trajectory(current_hr, u_seq)
+            cost = self._compute_cost(y_pred, u_seq)
+
+            # 勾配近似による更新
+            for m in range(min(M, len(u_seq))):
+                # 数値勾配
+                epsilon = 0.01
+                u_seq_plus = u_seq.copy()
+                u_seq_plus[m] += epsilon
+                cost_plus = self._compute_cost(
+                    self._predict_trajectory(current_hr, u_seq_plus),
+                    u_seq_plus
+                )
+                gradient = (cost_plus - cost) / epsilon
+
+                # 勾配降下
+                step_size = 0.1
+                u_seq[m] -= step_size * gradient
+
+                # 制約適用
+                u_seq[m] = max(self.config.u_min, min(self.config.u_max, u_seq[m]))
+
+                # 変化量制約
+                if abs(u_seq[m] - self._last_output) > self.config.du_max:
+                    u_seq[m] = self._last_output + self.config.du_max * (
+                        1 if u_seq[m] > self._last_output else -1
+                    )
+
+        return u_seq[0]  # 最初の入力のみ適用（Receding Horizon）
+
+    def _compute_cost(self, y_pred: List[float], u_seq: List[float]) -> float:
+        """MPC目的関数を計算"""
+        cost = 0.0
+
+        # 出力誤差項
+        for y in y_pred:
+            cost += self.config.output_weight * (y - self._target_hr) ** 2
+
+        # 入力変化量項
+        u_prev = self._last_output
+        for u in u_seq:
+            cost += self.config.input_change_weight * (u - u_prev) ** 2
+            u_prev = u
+
+        return cost
+
+    def update(self, current_hr: float, min_output: float, max_output: float) -> Tuple[float, dict]:
+        """
+        適応MPC制御による出力計算
+
+        Args:
+            current_hr: 現在の心拍数 (BPM)
+            min_output: 出力の最小値
+            max_output: 出力の最大値
+
+        Returns:
+            Tuple[float, dict]: (抑揚レベル, デバッグ情報)
+        """
+        current_time = time.time()
+        self._sample_count += 1
+
+        # 制約を更新
+        self.config.u_min = min_output
+        self.config.u_max = max_output
+
+        # モデル更新（十分なデータがある場合）
+        if len(self._hr_history) >= 2:
+            self._update_model_rls(current_hr)
+
+        # 履歴に追加
+        self._hr_history.append(current_hr)
+        if len(self._hr_history) > self._max_history:
+            self._hr_history.pop(0)
+
+        # デッドバンド処理
+        error = self._target_hr - current_hr
+        if abs(error) < self.config.deadband:
+            # 目標付近では現状維持
+            output = self._last_output
+        else:
+            # MPC最適化
+            output = self._solve_mpc(current_hr)
+
+        # 出力範囲にクランプ
+        output = max(min_output, min(max_output, output))
+
+        # 履歴に追加
+        self._u_history.append(output)
+        if len(self._u_history) > self._max_history:
+            self._u_history.pop(0)
+
+        # 状態更新
+        self._last_time = current_time
+        self._last_output = output
+
+        debug_info = {
+            "control_mode": "AdaptiveMPC",
+            "target_hr": self._target_hr,
+            "current_hr": current_hr,
+            "error": error,
+            "model_a": self._a,
+            "model_b": self._b,
+            "P_a": self._P_a,
+            "P_b": self._P_b,
+            "sample_count": self._sample_count,
+            "output": output
+        }
+
+        return output, debug_info
+
+    def get_model_params(self) -> Tuple[float, float]:
+        """現在のモデルパラメータを取得"""
+        return self._a, self._b
+
+    def set_prediction_horizon(self, N: int) -> None:
+        """予測ホライズンを設定"""
+        self.config.prediction_horizon = max(1, min(30, N))
+        print(f"AdaptiveMPC prediction horizon set to {self.config.prediction_horizon}")
+
+    def set_weights(self, output_weight: float, input_change_weight: float) -> None:
+        """MPC重みを設定"""
+        self.config.output_weight = max(0.1, output_weight)
+        self.config.input_change_weight = max(0.01, input_change_weight)
+        print(f"AdaptiveMPC weights: output={self.config.output_weight}, "
+              f"input_change={self.config.input_change_weight}")
 
 
 class AdaptiveController:
@@ -499,7 +819,7 @@ class GainScheduledController:
 
 class HRF2Controller:
     """
-    HRF2 - PID制御/適応制御/ゲインスケジューリング制御による心拍数追従コントローラー
+    HRF2 - PID制御/適応制御/ゲインスケジューリング制御/適応MPC制御による心拍数追従コントローラー
 
     目標心拍数に対して現在の心拍数を追従させるため、
     抑揚パラメータを制御する。
@@ -508,14 +828,17 @@ class HRF2Controller:
     - PID: 従来のPID制御
     - Adaptive: MRAC（モデル規範型適応制御）
     - GainScheduled: 誤差ベースのゲインスケジューリング
+    - AdaptiveMPC: 適応モデル予測制御（RLS同定 + MPC最適化）
     """
 
     def __init__(self, config: Optional[HRF2Config] = None,
                  adaptive_config: Optional[AdaptiveConfig] = None,
-                 gain_schedule_config: Optional[GainScheduleConfig] = None):
+                 gain_schedule_config: Optional[GainScheduleConfig] = None,
+                 adaptive_mpc_config: Optional[AdaptiveMPCConfig] = None):
         self.config = config or HRF2Config()
         self.adaptive_config = adaptive_config or AdaptiveConfig()
         self.gain_schedule_config = gain_schedule_config or GainScheduleConfig()
+        self.adaptive_mpc_config = adaptive_mpc_config or AdaptiveMPCConfig()
 
         # PID制御の内部状態
         self._integral: float = 0.0
@@ -527,6 +850,9 @@ class HRF2Controller:
 
         # ゲインスケジューリングコントローラー
         self._gain_scheduled_controller = GainScheduledController(self.gain_schedule_config)
+
+        # 適応MPCコントローラー
+        self._adaptive_mpc_controller = AdaptiveMPCController(self.adaptive_mpc_config)
 
         # 有効/無効フラグ
         self._enabled: bool = False
@@ -564,6 +890,7 @@ class HRF2Controller:
         self.config.target_hr = max(40.0, min(180.0, value))
         self._adaptive_controller.set_target_hr(self.config.target_hr)
         self._gain_scheduled_controller.set_target_hr(self.config.target_hr)
+        self._adaptive_mpc_controller.set_target_hr(self.config.target_hr)
         print(f"HRF2 target HR set to {self.config.target_hr} BPM")
 
     def reset(self) -> None:
@@ -581,6 +908,10 @@ class HRF2Controller:
         # ゲインスケジューリング状態リセット
         self._gain_scheduled_controller.reset()
         self._gain_scheduled_controller.set_target_hr(self.config.target_hr)
+
+        # 適応MPC状態リセット
+        self._adaptive_mpc_controller.reset()
+        self._adaptive_mpc_controller.set_target_hr(self.config.target_hr)
         print("HRF2 Controller reset (all modes)")
 
     def update(self, current_hr: float) -> Tuple[float, dict]:
@@ -601,6 +932,8 @@ class HRF2Controller:
             return self._update_adaptive(current_hr)
         elif self.config.control_mode == ControlMode.GAIN_SCHEDULED:
             return self._update_gain_scheduled(current_hr)
+        elif self.config.control_mode == ControlMode.ADAPTIVE_MPC:
+            return self._update_adaptive_mpc(current_hr)
         else:
             return self._update_pid(current_hr)
 
@@ -693,6 +1026,17 @@ class HRF2Controller:
         debug_info["enabled"] = True
         return output, debug_info
 
+    def _update_adaptive_mpc(self, current_hr: float) -> Tuple[float, dict]:
+        """適応モデル予測制御による出力計算"""
+        output, debug_info = self._adaptive_mpc_controller.update(
+            current_hr,
+            self.config.min_output,
+            self.config.max_output
+        )
+        self._last_output = output
+        debug_info["enabled"] = True
+        return output, debug_info
+
     def get_status_text(self, current_hr: float) -> str:
         """現在の状態をテキストで返す"""
         if not self._enabled:
@@ -713,6 +1057,11 @@ class HRF2Controller:
             return (f"HRF2({mode_str}): 目標{self.config.target_hr:.0f}BPM "
                     f"現在{current_hr:.0f}BPM {direction} "
                     f"zone={zone} Kp={kp:.3f} 抑揚{self._last_output:.2f}")
+        elif self.config.control_mode == ControlMode.ADAPTIVE_MPC:
+            a, b = self._adaptive_mpc_controller.get_model_params()
+            return (f"HRF2({mode_str}): 目標{self.config.target_hr:.0f}BPM "
+                    f"現在{current_hr:.0f}BPM {direction} "
+                    f"a={a:.3f} b={b:.3f} 抑揚{self._last_output:.2f}")
         else:
             return (f"HRF2({mode_str}): 目標{self.config.target_hr:.0f}BPM "
                     f"現在{current_hr:.0f}BPM {direction} "
@@ -767,3 +1116,20 @@ class HRF2Controller:
     def get_gain_schedule_gain_type(self) -> GainType:
         """現在のゲインタイプを取得"""
         return self._gain_scheduled_controller.get_current_gain_type()
+
+    # --- AdaptiveMPC用メソッド ---
+    def get_adaptive_mpc_model_params(self) -> Tuple[float, float]:
+        """AdaptiveMPCの現在のモデルパラメータ(a, b)を取得"""
+        return self._adaptive_mpc_controller.get_model_params()
+
+    def get_adaptive_mpc_config(self) -> AdaptiveMPCConfig:
+        """AdaptiveMPC設定を取得"""
+        return self._adaptive_mpc_controller.config
+
+    def set_adaptive_mpc_prediction_horizon(self, N: int) -> None:
+        """AdaptiveMPCの予測ホライズンを設定"""
+        self._adaptive_mpc_controller.set_prediction_horizon(N)
+
+    def set_adaptive_mpc_weights(self, output_weight: float, input_change_weight: float) -> None:
+        """AdaptiveMPCの重みを設定"""
+        self._adaptive_mpc_controller.set_weights(output_weight, input_change_weight)
