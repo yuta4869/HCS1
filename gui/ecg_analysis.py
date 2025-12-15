@@ -7,9 +7,8 @@ from itertools import accumulate
 
 import numpy as np
 import pandas as pd
-import matplotlib
-matplotlib.use('Agg')  # 非インタラクティブバックエンド（スレッドセーフ）
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg
 import matplotlib.patches as mpatches
 import seaborn as sns
 try:
@@ -442,7 +441,11 @@ def generate_box_plots(
         df_melted = plot_data.melt(var_name='Condition', value_name='Value')
         df_melted = df_melted.dropna()
 
-        fig, ax = plt.subplots(figsize=(10, 7))
+        # Aggバックエンドを直接使用（スレッドセーフ）
+        fig = Figure(figsize=(10, 7))
+        canvas = FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
+
         available_labels = set(df_melted['Condition'])
         order_labels = []
         for cond in condition_order:
@@ -470,10 +473,9 @@ def generate_box_plots(
         ax.grid(axis='y', linestyle='--', alpha=0.7)
 
         save_path = os.path.join(output_dir, output_filename)
-        plt.tight_layout()
-        plt.savefig(save_path, dpi=300)
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=300)
         print(f"保存完了: {save_path}")
-        plt.close()
         saved_files.append(save_path)
 
     print("\nすべてのグラフ作成が完了しました。")

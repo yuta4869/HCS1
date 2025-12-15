@@ -98,10 +98,10 @@ class RealtimeMonitorMixin:
         self.hr_ax.set_xlabel("時間 (秒)")
         self.hr_ax.grid(True, alpha=0.3)
         self.hr_line, = self.hr_ax.plot([], [], 'r-', linewidth=1.5, label='HR')
-        # HRF2目標心拍数ライン（初期は非表示）
+        # HRF2目標心拍数ライン（常に表示、凡例にも含める）
         self.target_hr_line = self.hr_ax.axhline(
             y=70, color='blue', linestyle='--', linewidth=2.0,
-            label='目標HR', visible=False
+            label='目標HR'
         )
         self.hr_ax.legend(loc='upper right')
 
@@ -372,18 +372,14 @@ class RealtimeMonitorMixin:
             hr_min = min(self.hr_values) - 10 if self.hr_values else 50
             hr_max = max(self.hr_values) + 10 if self.hr_values else 120
 
-            # HRF2制御が有効な場合、目標心拍数ラインを表示
+            # 目標心拍数ラインを更新（常に表示）
             target_hr = self._get_hrf2_target_hr()
             if target_hr is not None:
                 self.target_hr_line.set_ydata([target_hr, target_hr])
-                self.target_hr_line.set_visible(True)
                 self.target_hr_display_label.config(text=f"目標HR: {target_hr:.0f} bpm")
                 # Y軸範囲を目標値も含めて調整
                 hr_min = min(hr_min, target_hr - 10)
                 hr_max = max(hr_max, target_hr + 10)
-            else:
-                self.target_hr_line.set_visible(False)
-                self.target_hr_display_label.config(text="")
 
             self.hr_ax.set_ylim(hr_min, hr_max)
 
@@ -416,20 +412,17 @@ class RealtimeMonitorMixin:
             values.pop(0)
 
     def _get_hrf2_target_hr(self) -> Optional[float]:
-        """HRF2制御が有効な場合、目標心拍数を取得"""
-        # audio_processorからHRF2コントローラーの状態を取得
-        audio_processor = getattr(self, 'audio_processor', None)
-        if audio_processor is None:
-            return None
-
-        # HRF2が有効かチェック
-        if not getattr(audio_processor, 'hrf2_enabled', False):
+        """目標心拍数を取得（常に表示）"""
+        # prosodyからHRF2コントローラーを取得
+        prosody = getattr(self, 'prosody', None)
+        if prosody is None:
             return None
 
         # HRF2コントローラーから目標心拍数を取得
-        hrf2_controller = getattr(audio_processor, 'hrf2_controller', None)
+        hrf2_controller = getattr(prosody, 'hrf2_controller', None)
         if hrf2_controller is None:
             return None
 
-        target_hr = hrf2_controller.get_target_hr()
+        # target_hrプロパティを使用
+        target_hr = hrf2_controller.target_hr
         return target_hr if target_hr > 0 else None
