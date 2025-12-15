@@ -123,7 +123,7 @@ CONFIG_FILE = resource_path("config_heartrate_prosody.json")
 
 # --- Log File Templates ---
 # モード名: Sin (正弦波), HRF (心拍フィードバック), Fixed (抑揚固定)
-CONVERSATION_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{subject_id}_{session_timestamp}_{mode}.txt")
+CONVERSATION_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{subject_id}_{timestamp}.txt")
 CONVERSATION_CSV_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "conversation_log_{subject_id}_{session_timestamp}_{mode}.csv")
 HR_PROSODY_CSV_TEMPLATE = os.path.join(LOG_DIR, "verity_hr_prosody_{subject_id}_{session_timestamp}_{mode}.csv")
 

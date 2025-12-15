@@ -176,14 +176,9 @@ class ConversationManager:
         if self.log_filepath:
             return
         template = config.CONVERSATION_LOG_FILE_TEMPLATE
-        # session_timestampとmodeがあれば使用、なければフォールバック
-        session_ts = getattr(self, 'current_session_timestamp_for_csv', None)
-        mode = getattr(self, 'current_session_mode', None) or "Unknown"
         self.log_filepath = get_timestamped_log_path(
             template,
-            subject_id=self.subject_id,
-            session_timestamp=session_ts,
-            mode=mode
+            subject_id=self.subject_id
         )
         try:
             os.makedirs(os.path.dirname(self.log_filepath), exist_ok=True)
