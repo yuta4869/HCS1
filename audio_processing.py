@@ -662,9 +662,11 @@ class AudioProcessor:
 
         try:
             os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
+            print(f"[record_audio] Opening InputStream: device={self.input_device_index}, rate={self.sample_rate}, blocksize={self.chunk_size}")
             with sd.InputStream(samplerate=self.sample_rate, channels=self.channels,
                               callback=callback, blocksize=self.chunk_size, dtype='float32',
                               device=self.input_device_index):
+                print("[record_audio] InputStream opened successfully, starting recording loop...")
                 recorded_chunks: List[np.ndarray] = []
                 silent_start_time: Optional[float] = None
                 recording_start_time: Optional[float] = None
