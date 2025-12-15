@@ -741,9 +741,27 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
             textvariable=self.ecg_window_length_var, width=8
         ).grid(row=3, column=1, sticky="w", padx=5, pady=5)
 
+        # --- 条件設定 ---
+        condition_frame = ttk.LabelFrame(main_frame, text="条件設定", padding="10")
+        condition_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
+        condition_frame.columnconfigure(1, weight=1)
+        ttk.Label(condition_frame, text="解析・箱ひげ図に含める条件を選択してください。").grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=5, pady=(0, 5)
+        )
+
+        self.ecg_condition_vars: Dict[str, tk.BooleanVar] = {}
+        for idx, condition in enumerate(ANALYS_CONDITION_ORDER):
+            var = tk.BooleanVar(value=True)
+            self.ecg_condition_vars[condition] = var
+            ttk.Checkbutton(
+                condition_frame,
+                text=condition,
+                variable=var
+            ).grid(row=1 + idx, column=0, sticky="w", padx=5, pady=2)
+
         # --- 実行ボタン ---
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=10)
+        button_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=10)
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
         button_frame.columnconfigure(2, weight=1)
@@ -760,14 +778,14 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         # --- ステータス表示 ---
         self.ecg_status_var = tk.StringVar(value="フォルダを選択して解析を開始してください。")
         status_label = ttk.Label(main_frame, textvariable=self.ecg_status_var, foreground="blue", wraplength=800)
-        status_label.grid(row=4, column=0, sticky="w", padx=10, pady=5)
+        status_label.grid(row=5, column=0, sticky="w", padx=10, pady=5)
 
         # --- 結果プレビュー用フレーム ---
         preview_frame = ttk.LabelFrame(main_frame, text="解析結果プレビュー", padding="10")
-        preview_frame.grid(row=5, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.grid(row=6, column=0, sticky="nsew", padx=5, pady=5)
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(5, weight=1)
+        main_frame.rowconfigure(6, weight=1)
 
         self.ecg_preview_canvas_frame = ttk.Frame(preview_frame)
         self.ecg_preview_canvas_frame.grid(row=0, column=0, sticky="nsew")
@@ -855,6 +873,12 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
             subject_files[subject_id][condition] = full_path
         return subject_files
 
+    def _get_selected_ecg_conditions(self) -> List[str]:
+        if not hasattr(self, "ecg_condition_vars"):
+            return list(ANALYS_CONDITION_ORDER)
+        selected = [cond for cond, var in self.ecg_condition_vars.items() if var.get()]
+        return selected
+
     def _run_ecg_analysis(self):
         """ECG/HRV解析を実行"""
         if not self.ecg_input_dir or not os.path.isdir(self.ecg_input_dir):
@@ -915,16 +939,20 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
                 processed = 0
                 skipped = {}
 
+                selected_conditions = self._get_selected_ecg_conditions()
+                if not selected_conditions:
+                    selected_conditions = list(ANALYS_CONDITION_ORDER)
+
                 for subject_id, files_by_condition in subject_files.items():
-                    missing = [cond for cond in ANALYS_CONDITION_ORDER if cond not in files_by_condition]
+                    missing = [cond for cond in selected_conditions if cond not in files_by_condition]
                     if missing:
-                        skipped[subject_id] = missing
                         print(f"{subject_id}: {', '.join(missing)} のファイルが不足しているためスキップします。")
+                        skipped[subject_id] = missing
                         continue
 
                     try:
                         subject_dir = os.path.join(output_dir, subject_id)
-                        ordered_files = {condition: files_by_condition[condition] for condition in ANALYS_CONDITION_ORDER}
+                        ordered_files = {condition: files_by_condition[condition] for condition in selected_conditions}
                         print(f"\n=== {subject_id} の解析を開始します ===")
                         analys_run_batch_analysis(
                             ordered_files,
@@ -973,6 +1001,10 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
 
     def _generate_ecg_boxplots(self):
         """箱ひげ図を生成"""
+        selected_conditions = self._get_selected_ecg_conditions()
+        if not selected_conditions:
+            selected_conditions = list(ANALYS_CONDITION_ORDER)
+
         output_dir = self.ecg_output_dir if self.ecg_output_dir else os.path.join(os.path.dirname(self.ecg_input_dir or "."), "result_batch")
         combined_file = os.path.join(output_dir, "Combined_HRV_Analysis.xlsx")
 
@@ -991,7 +1023,11 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
                 return
 
         try:
-            saved_files = analys_generate_box_plots(combined_file, os.path.dirname(combined_file))
+            saved_files = analys_generate_box_plots(
+                combined_file,
+                os.path.dirname(combined_file),
+                condition_order=selected_conditions
+            )
             messagebox.showinfo("完了", f"箱ひげ図を作成しました:\n" + "\n".join(saved_files))
             self.ecg_status_var.set("箱ひげ図を生成しました。")
         except Exception as exc:

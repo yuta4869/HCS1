@@ -44,6 +44,26 @@ ANALYS_CONDITION_MAP = {
 }
 ANALYS_CONDITION_ORDER = _ECG_CONDITIONS
 
+DEFAULT_CONDITION_LABELS = {
+    'Fixed': '固定会話',
+    'Sin': '正弦波',
+    'HRF': '調整会話',
+    'HRF2_PID': 'HRF2 (PID)',
+    'HRF2_Adaptive': 'HRF2 (Adaptive)',
+    'HRF2_GS': 'HRF2 (GS)',
+    'HRF2_AdaptiveMPC': 'HRF2 (AdaptiveMPC)',
+}
+
+CONDITION_COLORS = {
+    'Fixed': 'lightcoral',
+    'Sin': 'lightblue',
+    'HRF': 'lightyellow',
+    'HRF2_PID': '#ffcc99',
+    'HRF2_Adaptive': '#b2d8b2',
+    'HRF2_GS': '#c9c3ff',
+    'HRF2_AdaptiveMPC': '#f4b6c2',
+}
+
 
 def bandpass_filter(signal_data, fs):
     """バンドパスフィルタ (0.5Hz - 50Hz)"""
@@ -363,26 +383,16 @@ def run_batch_analysis(
     print("\n処理完了。")
 
 
-def generate_box_plots(input_file_path, output_dir):
+def generate_box_plots(
+    input_file_path,
+    output_dir,
+    condition_labels=None,
+    condition_order=None,
+):
     """箱ひげ図を生成する"""
-    conditions = {
-        'Fixed': '固定会話',
-        'Sin': '正弦波',
-        'HRF': '調整会話',
-        'HRF2_PID': 'HRF2 (PID)',
-        'HRF2_Adaptive': 'HRF2 (Adaptive)',
-        'HRF2_GS': 'HRF2 (GS)',
-        'HRF2_AdaptiveMPC': 'HRF2 (AdaptiveMPC)',
-    }
-    colors = {
-        '固定会話': 'lightcoral',
-        '正弦波': 'lightblue',
-        '調整会話': 'lightyellow',
-        'HRF2 (PID)': '#ffcc99',
-        'HRF2 (Adaptive)': '#b2d8b2',
-        'HRF2 (GS)': '#c9c3ff',
-        'HRF2 (AdaptiveMPC)': '#f4b6c2',
-    }
+    condition_labels = condition_labels or DEFAULT_CONDITION_LABELS
+    condition_order = condition_order or ANALYS_CONDITION_ORDER
+    colors = CONDITION_COLORS
 
     if not os.path.exists(input_file_path):
         raise FileNotFoundError(f"ファイルが見つかりません: {input_file_path}")
@@ -402,10 +412,11 @@ def generate_box_plots(input_file_path, output_dir):
         plot_data = pd.DataFrame()
         found_cols = False
 
-        for eng_key, jp_label in conditions.items():
+        for eng_key, display_label in condition_labels.items():
             col_name = f"{eng_key}{metric_suffix}"
             if col_name in df.columns:
-                plot_data[jp_label] = df[col_name]
+                label = display_label or eng_key
+                plot_data[label] = df[col_name]
                 found_cols = True
 
         if not found_cols:
@@ -416,11 +427,23 @@ def generate_box_plots(input_file_path, output_dir):
         df_melted = df_melted.dropna()
 
         fig, ax = plt.subplots(figsize=(10, 7))
-        order_labels = [conditions[key] for key in ANALYS_CONDITION_ORDER if conditions[key] in set(df_melted['Condition'])]
+        available_labels = set(df_melted['Condition'])
+        order_labels = []
+        for cond in condition_order:
+            label = condition_labels.get(cond)
+            if label and label in available_labels:
+                order_labels.append(label)
         if not order_labels:
             order_labels = list(df_melted['Condition'].unique())
 
-        palette = {label: colors.get(label, 'lightgray') for label in order_labels}
+        palette = {}
+        for cond in condition_order:
+            label = condition_labels.get(cond)
+            if label and label in order_labels:
+                palette[label] = colors.get(cond, 'lightgray')
+        for label in order_labels:
+            if label not in palette:
+                palette[label] = 'lightgray'
         sns.boxplot(x='Condition', y='Value', data=df_melted, palette=palette, ax=ax, showfliers=False, width=0.5, order=order_labels)
 
         legend_patches = [mpatches.Patch(color=palette[label], label=label) for label in order_labels]

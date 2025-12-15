@@ -17,6 +17,7 @@ test_audio/
 *.wav
 *.mp4
 *.mp3
+*.pdf
 
 # Model files and cache
 *.gguf
@@ -34,3 +35,6 @@ Logs/
 
 logs/
 HCS1.git/
+
+# Dependency files
+requirements.txt
