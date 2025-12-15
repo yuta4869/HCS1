@@ -4,6 +4,7 @@
 from .application import Application
 from .status_window import StatusDisplayWindow
 from .realtime_monitor import RealtimeMonitorMixin
+from .timeseries_analysis import TimeseriesAnalysisMixin
 from .ecg_analysis import (
     FILENAME_PATTERN,
     ANALYS_CONDITION_MAP,
@@ -38,6 +39,7 @@ __all__ = [
     "Application",
     "StatusDisplayWindow",
     "RealtimeMonitorMixin",
+    "TimeseriesAnalysisMixin",
     # ECG解析
     "FILENAME_PATTERN",
     "ANALYS_CONDITION_MAP",

@@ -58,9 +58,10 @@ from .questionnaire_analysis import (
     generate_plots as analys_q_generate_plots,
 )
 from .realtime_monitor import RealtimeMonitorMixin
+from .timeseries_analysis import TimeseriesAnalysisMixin
 
 
-class Application(RealtimeMonitorMixin, tk.Toplevel):
+class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
     """Main application class with Tkinter UI."""
     def __init__(self, master, # Added master parameter
                  prosody_settings: ProsodySettings,
@@ -207,7 +208,11 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         self.ecg_analysis_tab = ttk.Frame(self.notebook, padding="10")
         self.notebook.add(self.ecg_analysis_tab, text="ECG/HRV解析")
 
-        # タブ4: アンケート解析 (Analys_Q)
+        # タブ4: 個別時系列解析
+        self.timeseries_analysis_tab = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(self.timeseries_analysis_tab, text="時系列解析")
+
+        # タブ5: アンケート解析 (Analys_Q)
         self.questionnaire_tab = ttk.Frame(self.notebook, padding="10")
         self.notebook.add(self.questionnaire_tab, text="アンケート解析")
 
@@ -215,6 +220,7 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         self._setup_conversation_tab()
         self._setup_realtime_monitor_tab()
         self._setup_ecg_analysis_tab()
+        self._setup_timeseries_analysis_tab()
         self._setup_questionnaire_tab()
 
     def _setup_conversation_tab(self) -> None:
