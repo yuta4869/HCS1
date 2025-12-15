@@ -8,7 +8,7 @@ A conversation system that integrates heart rate monitoring with speech prosody 
 
 ## 📥 ダウンロード / Download
 
-### 最新版 (v6.13.1)
+### 最新版 (v6.16.0)
 
 **方法1: スタンドアロンアプリ (推奨)**
 
@@ -28,10 +28,10 @@ cd HCS1
 **方法3: 特定バージョンをダウンロード**
 ```bash
 # 最新リリース
-git clone --branch v6.13.1 --depth 1 https://github.com/yuta4869/HCS1.git
+git clone --branch v6.16.0 --depth 1 https://github.com/yuta4869/HCS1.git
 
 # または ZIP でダウンロード
-# https://github.com/yuta4869/HCS1/archive/refs/tags/v6.13.1.zip
+# https://github.com/yuta4869/HCS1/archive/refs/tags/v6.16.0.zip
 ```
 
 ---
@@ -51,6 +51,7 @@ HCS (Human Conversation System) は、心拍数データと音声韻律（リズ
   - PID 制御
   - 適応制御 (MRAC)
   - ゲインスケジューリング制御
+  - ロバスト制御 (H∞ループ整形)
 - **LLM 対話**: OpenAI API またはローカル LLM（llama.cpp）対応
 - **GUI**: Tkinter ベースの操作画面
 - **データログ**: 会話履歴、心拍数、HRV などの研究用ログ出力
@@ -243,6 +244,7 @@ HCS (Human Conversation System) is a dialogue system that analyzes and integrate
   - PID Control
   - Adaptive Control (MRAC)
   - Gain Scheduling Control
+  - Robust Control (H∞ Loop Shaping)
 - **LLM Conversation**: OpenAI API or local LLM (llama.cpp) support
 - **GUI**: Tkinter-based interface
 - **Data Logging**: Conversation history, heart rate, HRV logging for research
@@ -470,6 +472,7 @@ MIT License
 
 ## 📝 Version History
 
+- **v6.16.0** - Robust Control (H∞ loop shaping) added to HRF2 control modes
 - **v6.13.1** - Scrollable conversation tab for small windows
 - **v6.13.0** - SDNN CSV logging from ECG realtime monitor
 - **v6.12.0** - ECG-based SDNN calculation with 130Hz R-peak detection

@@ -483,12 +483,12 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         )
         hrf2_checkbox.pack(side=tk.LEFT, padx=(0, 10))
 
-        # 制御モード選択（PID / Adaptive / GainScheduled / AdaptiveMPC）
+        # 制御モード選択（PID / Adaptive / GainScheduled / Robust）
         ttk.Label(hrf2_row0_frame, text="制御:").pack(side=tk.LEFT, padx=(0, 2))
         self.hrf2_control_mode_var = tk.StringVar(value=self.prosody.get_hrf2_control_mode().value)
         hrf2_mode_combo = ttk.Combobox(
             hrf2_row0_frame, textvariable=self.hrf2_control_mode_var,
-            values=["PID", "Adaptive", "GainScheduled", "AdaptiveMPC"], state="readonly", width=12
+            values=["PID", "Adaptive", "GainScheduled", "Robust"], state="readonly", width=12
         )
         hrf2_mode_combo.pack(side=tk.LEFT, padx=(0, 10))
         hrf2_mode_combo.bind("<<ComboboxSelected>>", self._on_hrf2_control_mode_change)
@@ -2073,9 +2073,9 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
                         self.hrf2_gs_zone_label.config(text=zone)
                     if hasattr(self, 'hrf2_gs_type_label'):
                         self.hrf2_gs_type_label.config(text=gain_type)
-                elif mode == "AdaptiveMPC":
-                    a, b = self.prosody.get_hrf2_adaptive_mpc_model_params()
-                    status_text = f"HRF2({mode}): 目標{target:.0f}BPM / 現在{current_hr}BPM / a={a:.3f} b={b:.3f}"
+                elif mode == "Robust":
+                    gain = self.prosody.get_hrf2_robust_adapted_gain()
+                    status_text = f"HRF2({mode}): 目標{target:.0f}BPM / 現在{current_hr}BPM / gain={gain:.4f}"
                 else:
                     status_text = f"HRF2({mode}): 目標{target:.0f}BPM / 現在{current_hr}BPM"
             else:
@@ -2092,8 +2092,8 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
                 mode = ControlMode.PID
             elif mode_str == "Adaptive":
                 mode = ControlMode.ADAPTIVE
-            elif mode_str == "AdaptiveMPC":
-                mode = ControlMode.ADAPTIVE_MPC
+            elif mode_str == "Robust":
+                mode = ControlMode.ROBUST
             else:  # GainScheduled
                 mode = ControlMode.GAIN_SCHEDULED
             self.prosody.set_hrf2_control_mode(mode)
@@ -2128,8 +2128,8 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
             set_frame_state(self.hrf2_adaptive_frame, True)
             if hasattr(self, 'hrf2_gainschedule_frame'):
                 set_frame_state(self.hrf2_gainschedule_frame, False)
-        elif mode == ControlMode.ADAPTIVE_MPC:
-            # AdaptiveMPCはデフォルトパラメータで動作（RLSで自動同定）
+        elif mode == ControlMode.ROBUST:
+            # Robustはデフォルトパラメータで動作（H∞ループ整形）
             set_frame_state(self.hrf2_pid_frame, False)
             set_frame_state(self.hrf2_adaptive_frame, False)
             if hasattr(self, 'hrf2_gainschedule_frame'):

@@ -25,7 +25,7 @@ _ECG_CONDITIONS = [
     "HRF2_PID",
     "HRF2_Adaptive",
     "HRF2_GS",
-    "HRF2_AdaptiveMPC",
+    "HRF2_Robust",
 ]
 _FILENAME_COND_PATTERN = "|".join(_ECG_CONDITIONS)
 FILENAME_PATTERN = re.compile(
@@ -40,7 +40,7 @@ ANALYS_CONDITION_MAP = {
     "hrf2_adaptive": "HRF2_Adaptive",
     "hrf2_gs": "HRF2_GS",
     "hrf2_gainscheduled": "HRF2_GS",
-    "hrf2_adaptivempc": "HRF2_AdaptiveMPC",
+    "hrf2_robust": "HRF2_Robust",
 }
 ANALYS_CONDITION_ORDER = _ECG_CONDITIONS
 
@@ -51,7 +51,7 @@ DEFAULT_CONDITION_LABELS = {
     'HRF2_PID': 'HRF2 (PID)',
     'HRF2_Adaptive': 'HRF2 (Adaptive)',
     'HRF2_GS': 'HRF2 (GS)',
-    'HRF2_AdaptiveMPC': 'HRF2 (AdaptiveMPC)',
+    'HRF2_Robust': 'HRF2 (Robust)',
 }
 
 CONDITION_COLORS = {
@@ -61,7 +61,7 @@ CONDITION_COLORS = {
     'HRF2_PID': '#ffcc99',
     'HRF2_Adaptive': '#b2d8b2',
     'HRF2_GS': '#c9c3ff',
-    'HRF2_AdaptiveMPC': '#f4b6c2',
+    'HRF2_Robust': '#f4b6c2',
 }
 
 
