@@ -57,11 +57,20 @@ def find_device_by_keywords(
         valid_devices = [(i, d) for i, d in enumerate(devices) if d['max_output_channels'] > 0]
         default_device = sd.default.device[1]
 
+    # 会話用マイク検索時にウェブカメラを除外するキーワード
+    webcam_exclude_keywords = ["webcam", "camera", "c270", "c920", "c922", "hd webcam"]
+
     # キーワードの優先順位順に検索
     for keyword in keywords:
         keyword_lower = keyword.lower()
         for idx, dev in valid_devices:
-            if keyword_lower in dev['name'].lower():
+            dev_name_lower = dev['name'].lower()
+            if keyword_lower in dev_name_lower:
+                # ウェブカメラを除外（"USB Audio"などの汎用キーワードでマッチした場合）
+                is_webcam = any(wc in dev_name_lower for wc in webcam_exclude_keywords)
+                if is_webcam and keyword_lower in ["usb audio", "usb", "audio"]:
+                    print(f"[AudioDevice] キーワード '{keyword}' にマッチしたがウェブカメラのためスキップ: [{idx}] {dev['name']}")
+                    continue
                 print(f"[AudioDevice] キーワード '{keyword}' にマッチ: [{idx}] {dev['name']}")
                 return idx
 

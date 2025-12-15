@@ -90,7 +90,10 @@ UTTERANCE_WAV_DIR = os.path.join(LOG_DIR, "utterances")
 
 # 会話システム用マイク（音声認識に使用）
 # 例: ["インカム", "Headset", "USB Audio"] - インカムやヘッドセット優先
-CONVERSATION_MIC_KEYWORDS = ["インカム", "Headset", "USB Audio", "マイク"]
+# ヘッドセット/マイク専用デバイスを優先（ウェブカメラより先にマッチさせる）
+# HSOH20などのヘッドセットは "HSOH" や "Headset" を含むことが多い
+# "USB Audio" はウェブカメラにもマッチするため後ろに
+CONVERSATION_MIC_KEYWORDS = ["HSOH", "Headset", "インカム", "マイク", "USB Audio"]
 
 # 映像録画用マイク（ビデオ録音に使用）
 # 例: ["Webcam", "USB Camera", "C920"] - USBカメラのマイク優先
