@@ -8,7 +8,7 @@ from itertools import accumulate
 import numpy as np
 import pandas as pd
 import matplotlib
-matplotlib.use('TkAgg')
+matplotlib.use('Agg')  # 非インタラクティブバックエンド（スレッドセーフ）
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import seaborn as sns

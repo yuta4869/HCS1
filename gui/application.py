@@ -1071,15 +1071,22 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                     selected_conditions = list(ANALYS_CONDITION_ORDER)
 
                 for subject_id, files_by_condition in subject_files.items():
+                    # 選択した条件のうち、存在するものだけを抽出
+                    available_conditions = [cond for cond in selected_conditions if cond in files_by_condition]
                     missing = [cond for cond in selected_conditions if cond not in files_by_condition]
-                    if missing:
-                        print(f"{subject_id}: {', '.join(missing)} のファイルが不足しているためスキップします。")
+
+                    if not available_conditions:
+                        # 選択した条件が1つも存在しない場合はスキップ
+                        print(f"{subject_id}: 選択した条件のファイルが1つも存在しないためスキップします。")
                         skipped[subject_id] = missing
                         continue
 
+                    if missing:
+                        print(f"{subject_id}: {', '.join(missing)} は存在しないため、{', '.join(available_conditions)} のみ解析します。")
+
                     try:
                         subject_dir = os.path.join(output_dir, subject_id)
-                        ordered_files = {condition: files_by_condition[condition] for condition in selected_conditions}
+                        ordered_files = {condition: files_by_condition[condition] for condition in available_conditions}
                         print(f"\n=== {subject_id} の解析を開始します ===")
                         analys_run_batch_analysis(
                             ordered_files,

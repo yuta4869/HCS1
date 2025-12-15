@@ -8,7 +8,7 @@ A conversation system that integrates heart rate monitoring with speech prosody 
 
 ## 📥 ダウンロード / Download
 
-### 最新版 (v7.4.0)
+### 最新版 (v7.4.1)
 
 **方法1: スタンドアロンアプリ (推奨)**
 
@@ -28,10 +28,10 @@ cd HCS1
 **方法3: 特定バージョンをダウンロード**
 ```bash
 # 最新リリース
-git clone --branch v7.4.0 --depth 1 https://github.com/yuta4869/HCS1.git
+git clone --branch v7.4.1 --depth 1 https://github.com/yuta4869/HCS1.git
 
 # または ZIP でダウンロード
-# https://github.com/yuta4869/HCS1/archive/refs/tags/v7.4.0.zip
+# https://github.com/yuta4869/HCS1/archive/refs/tags/v7.4.1.zip
 ```
 
 ---
@@ -540,6 +540,7 @@ MIT License
 
 ## 📝 Version History
 
+- **v7.4.1** - ECG analysis partial condition support, matplotlib thread-safe backend fix
 - **v7.4.0** - HRF2 settings persistence (gains, target HR), audio playback noise fix (macOS afplay), target HR realtime update
 - **v7.3.0** - Output file naming with subject_id and mode, timeseries analysis tab
 - **v7.2.0** - Timeseries analysis feature for individual subject HR/RMSSD/SDNN graphs
