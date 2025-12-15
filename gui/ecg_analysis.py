@@ -18,9 +18,31 @@ except ImportError:
     pass
 
 # 解析用の定数
-FILENAME_PATTERN = re.compile(r".*_No(?P<subject>\d+)_\d{8}_\d{6}_(?P<condition>Sin|Fixed|HRF)\.csv$", re.IGNORECASE)
-ANALYS_CONDITION_MAP = {"sin": "Sin", "fixed": "Fixed", "hrf": "HRF"}
-ANALYS_CONDITION_ORDER = ["Sin", "Fixed", "HRF"]
+_ECG_CONDITIONS = [
+    "Sin",
+    "Fixed",
+    "HRF",
+    "HRF2_PID",
+    "HRF2_Adaptive",
+    "HRF2_GS",
+    "HRF2_AdaptiveMPC",
+]
+_FILENAME_COND_PATTERN = "|".join(_ECG_CONDITIONS)
+FILENAME_PATTERN = re.compile(
+    rf".*_No(?P<subject>\d+)_\d{{8}}_\d{{6}}_(?P<condition>{_FILENAME_COND_PATTERN})\.csv$",
+    re.IGNORECASE,
+)
+ANALYS_CONDITION_MAP = {
+    "sin": "Sin",
+    "fixed": "Fixed",
+    "hrf": "HRF",
+    "hrf2_pid": "HRF2_PID",
+    "hrf2_adaptive": "HRF2_Adaptive",
+    "hrf2_gs": "HRF2_GS",
+    "hrf2_gainscheduled": "HRF2_GS",
+    "hrf2_adaptivempc": "HRF2_AdaptiveMPC",
+}
+ANALYS_CONDITION_ORDER = _ECG_CONDITIONS
 
 
 def bandpass_filter(signal_data, fs):
@@ -258,8 +280,24 @@ def run_batch_analysis(files_map, output_dir):
 
 def generate_box_plots(input_file_path, output_dir):
     """箱ひげ図を生成する"""
-    conditions = {'Fixed': '固定会話', 'HRF': '調整会話', 'Sin': '正弦波'}
-    colors = {'固定会話': 'lightcoral', '調整会話': 'lightyellow', '正弦波': 'lightblue'}
+    conditions = {
+        'Fixed': '固定会話',
+        'Sin': '正弦波',
+        'HRF': '調整会話',
+        'HRF2_PID': 'HRF2 (PID)',
+        'HRF2_Adaptive': 'HRF2 (Adaptive)',
+        'HRF2_GS': 'HRF2 (GS)',
+        'HRF2_AdaptiveMPC': 'HRF2 (AdaptiveMPC)',
+    }
+    colors = {
+        '固定会話': 'lightcoral',
+        '正弦波': 'lightblue',
+        '調整会話': 'lightyellow',
+        'HRF2 (PID)': '#ffcc99',
+        'HRF2 (Adaptive)': '#b2d8b2',
+        'HRF2 (GS)': '#c9c3ff',
+        'HRF2 (AdaptiveMPC)': '#f4b6c2',
+    }
 
     if not os.path.exists(input_file_path):
         raise FileNotFoundError(f"ファイルが見つかりません: {input_file_path}")
