@@ -207,13 +207,15 @@ class ProsodySettings:
         Returns:
             "Sin" - 正弦波モード
             "HRF" - 心拍数フィードバックモード（直接調整）
-            "HRF2" - PID制御による心拍数追従モード
+            "HRF2_<制御種別>" - HRF2の制御モード（例: HRF2_PID, HRF2_Adaptive）
             "Fixed" - 抑揚固定モード（どちらも無効）
         """
         if self.sinusoidal_hfb_enabled:
             return "Sin"
         elif self.hrf2_enabled:
-            return "HRF2"
+            control_mode = getattr(self.hrf2_controller, "control_mode", None)
+            control_label = control_mode.value if control_mode else "PID"
+            return f"HRF2_{control_label}"
         elif self.hfb_enabled:
             return "HRF"
         else:
@@ -228,7 +230,10 @@ class ProsodySettings:
         mode = self.get_current_mode()
         if mode == "Sin":
             return "正弦波モード (Sin)"
-        elif mode == "HRF2":
+        elif mode.startswith("HRF2"):
+            control_label = mode.split("_", 1)[1] if "_" in mode else ""
+            if control_label:
+                return f"心拍追従 (HRF2 / {control_label})"
             return "心拍追従 (HRF2)"
         elif mode == "HRF":
             return "心拍フィードバック (HRF)"
@@ -791,7 +796,7 @@ class AudioProcessor:
 
             # HRF2: PID制御による心拍数追従モード
             elif hasattr(self.prosody, "is_hrf2_enabled") and self.prosody.is_hrf2_enabled():
-                hfb_type_for_log = "HRF2"
+                hfb_type_for_log = self.prosody.get_current_mode()
                 target_param_for_hfb = "intonation"
 
                 if self.hr_monitor is None or not getattr(self.hr_monitor, "is_connected", False):
@@ -806,7 +811,7 @@ class AudioProcessor:
                         self.prosody.set_parameter("intonation", hrf2_output)
 
                         print(
-                            f"HRF2 (PID): Target={debug_info.get('target_hr', 0):.0f} BPM, "
+                            f"{hfb_type_for_log}: Target={debug_info.get('target_hr', 0):.0f} BPM, "
                             f"Current={current_hr} BPM, Error={debug_info.get('error', 0):.1f}, "
                             f"Output={hrf2_output:.3f}"
                         )
