@@ -100,6 +100,20 @@ VIDEO_MIC_KEYWORDS = ["Webcam", "USB Camera", "C920", "C922", "Camera"]
 # True = デフォルトデバイスを使用, False = エラーとして扱う
 USE_DEFAULT_MIC_AS_FALLBACK = True
 
+# --- Audio Stream Settings (Linux/Ubuntu向け安定性設定) ---
+# "input overflow"エラーが頻発する場合はこれらの値を調整
+# AUDIO_CHUNK_SIZE: バッファサイズ（大きいほど安定だがレイテンシー増加）
+# AUDIO_LATENCY: "low", "high", または秒数（例: 0.2）
+#   - macOS: "low"で問題なし
+#   - Linux/Ubuntu (PulseAudio): "high"推奨
+import platform
+if platform.system() == "Linux":
+    AUDIO_CHUNK_SIZE = 4096  # Linux: 大きめのバッファ
+    AUDIO_LATENCY = "high"   # Linux: 高レイテンシーで安定性確保
+else:
+    AUDIO_CHUNK_SIZE = 2048  # macOS/Windows: 標準サイズ
+    AUDIO_LATENCY = "high"   # デフォルトは高レイテンシー
+
 INPUT_WAV_FILE = "input.wav"           # Filename for recorded audio
 OUTPUT_WAV_FILE = "output.wav"         # Filename for synthesized audio
 CONFIG_FILE = resource_path("config_heartrate_prosody.json")
