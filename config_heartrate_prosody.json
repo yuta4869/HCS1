@@ -1,5 +1,5 @@
 {
-    "reference_hr": 72,
+    "reference_hr": 66,
     "prosody": {
         "intonation": 1.0,
         "pitch": 0.0,
@@ -10,5 +10,25 @@
     "hfb_target_param": "intonation",
     "system_prompt": "あなたは今から楽しく会話してね。\n会話は 100文字を越えないで。\n会話には共感して。\n会話は途切れないようにして。（質問とかを使って）\n日本語で会話して、アルファベットの単語はそのままアルファベットで読むのではなくて英語の読み方をカタカナにして出力して。\nURL、ファイル名、箇条書きなどの会話できなくなるものは絶対に使わないで。",
     "speaker_id": 2,
-    "baseline_measurement_duration": 10
+    "baseline_measurement_duration": 10,
+    "hrf2": {
+        "kp": 0.1,
+        "ki": 0.0,
+        "kd": 0.0,
+        "target_hr": 70.0,
+        "control_mode": "PID",
+        "gain_schedule": {
+            "error_threshold_high": 15.0,
+            "error_threshold_medium": 7.0,
+            "kp_high": 0.04,
+            "ki_high": 0.008,
+            "kd_high": 0.015,
+            "kp_medium": 0.02,
+            "ki_medium": 0.005,
+            "kd_medium": 0.01,
+            "kp_low": 0.01,
+            "ki_low": 0.002,
+            "kd_low": 0.005
+        }
+    }
 }

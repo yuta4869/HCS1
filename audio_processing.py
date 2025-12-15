@@ -1028,10 +1028,38 @@ class AudioProcessor:
         return success, playback_start_dt, playback_end_dt
 
     def _play_audio_file(self, filename: str) -> None:
+        """音声ファイルを再生する
+
+        macOSではafplayを使用してノイズを回避。
+        その他のOSではsounddeviceを使用。
+        """
+        import platform
+        import subprocess
+
         try:
+            if platform.system() == "Darwin":
+                # macOS: afplayコマンドを使用（sounddeviceよりノイズが少ない）
+                result = subprocess.run(
+                    ["afplay", filename],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    print(f"afplay error: {result.stderr}")
+                    raise RuntimeError(f"afplay failed: {result.stderr}")
+            else:
+                # その他のOS: sounddeviceを使用
+                data, samplerate = sf.read(filename, dtype='float32')
+                sd.stop()
+                sd.play(data, samplerate)
+                sd.wait()
+        except FileNotFoundError:
+            # afplayが見つからない場合はsounddeviceにフォールバック
+            print("afplay not found, falling back to sounddevice")
             data, samplerate = sf.read(filename, dtype='float32')
+            sd.stop()
             sd.play(data, samplerate)
-            # sd.wait() # この行を削除して再生をノンブロッキングに
+            sd.wait()
         except Exception as e:
             print(f"Error during audio playback: {e}")
             raise

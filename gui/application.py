@@ -509,6 +509,9 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         )
         hrf2_target_spinbox.pack(side=tk.LEFT)
         hrf2_target_spinbox.bind("<Return>", lambda e: self._on_hrf2_target_change())
+        hrf2_target_spinbox.bind("<FocusOut>", lambda e: self._on_hrf2_target_change())
+        # 変数変更時にも反映
+        self.hrf2_target_hr_var.trace_add("write", lambda *args: self._on_hrf2_target_change())
 
         # Row 1: PIDゲイン設定
         self.hrf2_pid_frame = ttk.Frame(hrf2_frame)
@@ -1526,6 +1529,61 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                 self.baseline_duration_var.set(baseline_dur)
                 print(f"  Baseline Measurement Duration loaded: {baseline_dur}s")
 
+                # HRF2 設定の読み込み
+                hrf2_config = app_config.get('hrf2', {})
+                if hrf2_config:
+                    controller = self.prosody.hrf2_controller
+                    # PIDゲイン
+                    kp = hrf2_config.get('kp', controller.config.kp)
+                    ki = hrf2_config.get('ki', controller.config.ki)
+                    kd = hrf2_config.get('kd', controller.config.kd)
+                    controller.set_pid_gains(kp, ki, kd)
+                    # GUI変数も更新
+                    if hasattr(self, 'hrf2_kp_var'):
+                        self.hrf2_kp_var.set(kp)
+                    if hasattr(self, 'hrf2_ki_var'):
+                        self.hrf2_ki_var.set(ki)
+                    if hasattr(self, 'hrf2_kd_var'):
+                        self.hrf2_kd_var.set(kd)
+                    print(f"  HRF2 PID gains loaded: Kp={kp}, Ki={ki}, Kd={kd}")
+
+                    # 目標心拍数
+                    target_hr = hrf2_config.get('target_hr', controller.target_hr)
+                    controller.target_hr = target_hr
+                    if hasattr(self, 'hrf2_target_hr_var'):
+                        self.hrf2_target_hr_var.set(target_hr)
+                    print(f"  HRF2 Target HR loaded: {target_hr}")
+
+                    # 制御モード
+                    control_mode_str = hrf2_config.get('control_mode', 'PID')
+                    try:
+                        controller.control_mode = ControlMode(control_mode_str)
+                        print(f"  HRF2 Control mode loaded: {control_mode_str}")
+                    except ValueError:
+                        print(f"  Warning: Unknown control mode '{control_mode_str}', using PID")
+
+                    # ゲインスケジューリング設定
+                    gs_config = hrf2_config.get('gain_schedule', {})
+                    if gs_config:
+                        gs = controller.gain_schedule_config
+                        gs.error_threshold_high = gs_config.get('error_threshold_high', gs.error_threshold_high)
+                        gs.error_threshold_medium = gs_config.get('error_threshold_medium', gs.error_threshold_medium)
+                        gs.kp_high = gs_config.get('kp_high', gs.kp_high)
+                        gs.ki_high = gs_config.get('ki_high', gs.ki_high)
+                        gs.kd_high = gs_config.get('kd_high', gs.kd_high)
+                        gs.kp_medium = gs_config.get('kp_medium', gs.kp_medium)
+                        gs.ki_medium = gs_config.get('ki_medium', gs.ki_medium)
+                        gs.kd_medium = gs_config.get('kd_medium', gs.kd_medium)
+                        gs.kp_low = gs_config.get('kp_low', gs.kp_low)
+                        gs.ki_low = gs_config.get('ki_low', gs.ki_low)
+                        gs.kd_low = gs_config.get('kd_low', gs.kd_low)
+                        # GUI変数も更新
+                        if hasattr(self, 'hrf2_gs_high_var'):
+                            self.hrf2_gs_high_var.set(gs.error_threshold_high)
+                        if hasattr(self, 'hrf2_gs_med_var'):
+                            self.hrf2_gs_med_var.set(gs.error_threshold_medium)
+                        print(f"  HRF2 Gain schedule config loaded")
+
                 self.set_status("Configuration loaded", "blue")
             else:
                 print("Configuration file not found. Using default settings.")
@@ -1561,6 +1619,9 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
 
         print(f"Saving configuration to '{config.CONFIG_FILE}'...")
         try:
+            controller = self.prosody.hrf2_controller
+            gs = controller.gain_schedule_config
+
             app_config = {
                 'reference_hr': self.hr_monitor.get_reference_hr(),
                 'prosody': {
@@ -1570,7 +1631,27 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                 'hfb_target_param': getattr(self.prosody, "hfb_target_param", "intonation"),
                 'system_prompt': self.system_prompt.get('1.0', tk.END).strip(),
                 'speaker_id': self.speaker.current_style_id,
-                'baseline_measurement_duration': self.baseline_duration_var.get()
+                'baseline_measurement_duration': self.baseline_duration_var.get(),
+                'hrf2': {
+                    'kp': controller.config.kp,
+                    'ki': controller.config.ki,
+                    'kd': controller.config.kd,
+                    'target_hr': controller.target_hr,
+                    'control_mode': controller.control_mode.value,
+                    'gain_schedule': {
+                        'error_threshold_high': gs.error_threshold_high,
+                        'error_threshold_medium': gs.error_threshold_medium,
+                        'kp_high': gs.kp_high,
+                        'ki_high': gs.ki_high,
+                        'kd_high': gs.kd_high,
+                        'kp_medium': gs.kp_medium,
+                        'ki_medium': gs.ki_medium,
+                        'kd_medium': gs.kd_medium,
+                        'kp_low': gs.kp_low,
+                        'ki_low': gs.ki_low,
+                        'kd_low': gs.kd_low,
+                    }
+                }
             }
             with open(config.CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump(app_config, f, indent=4, ensure_ascii=False)
@@ -2041,9 +2122,15 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         """HRF2目標心拍数の変更"""
         try:
             target = self.hrf2_target_hr_var.get()
-            self.prosody.set_hrf2_target_hr(target)
-            self._update_hrf2_status()
-            self._log_to_console(f"HRF2目標心拍数を {target:.0f} BPM に設定")
+            current_target = self.prosody.get_hrf2_target_hr()
+            # 値が変わった場合のみ更新
+            if abs(target - current_target) > 0.1:
+                self.prosody.set_hrf2_target_hr(target)
+                self._update_hrf2_status()
+                print(f"HRF2目標心拍数を {target:.0f} BPM に設定")
+        except (tk.TclError, ValueError):
+            # 入力中の一時的なエラー（空文字など）は無視
+            pass
         except Exception as e:
             print(f"HRF2 target change error: {e}")
 
