@@ -1672,6 +1672,10 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         except Exception as e_conv_csv_init:
             print(f"会話CSVログの初期化エラー: {e_conv_csv_init}")
 
+        # Verityモニターにセッション情報を設定
+        if self.hr_monitor:
+            self.hr_monitor.set_session_info(self.current_session_timestamp, self.current_session_mode)
+
         if self.hr_monitor.is_connected:
             try:
                 verity_hr_path = get_timestamped_log_path(

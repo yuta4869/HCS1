@@ -31,6 +31,8 @@ class HeartRateMonitor:
         self.baseline_hr_samples: List[int] = []
         self.is_measuring_baseline: bool = False
         self.subject_id: Optional[str] = None
+        self.session_timestamp: Optional[str] = None
+        self.session_mode: Optional[str] = None
 
         # 話し始めトリガー用HRバッファ（タイムスタンプ付き）
         # 前後5秒（合計10秒）のバッファを保持
@@ -57,12 +59,19 @@ class HeartRateMonitor:
             self.is_connected = False
 
 
+    def set_session_info(self, session_timestamp: Optional[str], mode: Optional[str]) -> None:
+        """Sets the session timestamp and mode for log file naming."""
+        self.session_timestamp = session_timestamp
+        self.session_mode = mode
+
     def initialize_hr_prosody_csv(self) -> None:
         """Stores the intended path for the HR/Prosody log and signals logger thread."""
         try:
             self.hr_prosody_filepath = get_timestamped_log_path(
                 config.HR_PROSODY_CSV_TEMPLATE,
-                subject_id=self.subject_id
+                subject_id=self.subject_id,
+                session_timestamp=self.session_timestamp,
+                mode=self.session_mode or "Unknown"
             )
             header = ["Timestamp", "Heart Rate (BPM)", "Prosody Level Applied", "Reference HR"]
             self.log_queue.put(("add_handler", config.LOGGER_HR_PROSODY, self.hr_prosody_filepath, header))
