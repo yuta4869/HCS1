@@ -39,7 +39,11 @@ from conversation_manager import ConversationManager
 from audio_processing import ProsodySettings, SpeakerSettings, AudioProcessor, VoicevoxManager
 from hrf2_controller import ControlMode, GainType
 from video_recorder import VideoRecorder
-from audio_device_utils import get_conversation_mic_device, get_secondary_mic_device
+from audio_device_utils import (
+    get_conversation_mic_device,
+    get_secondary_mic_device,
+    list_input_devices,
+)
 
 from .status_window import StatusDisplayWindow
 from .ecg_analysis import (
@@ -116,19 +120,15 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         self.use_local_llm_var = tk.BooleanVar(value=config.USE_LOCAL_LLM)
         self.openai_api_key_var = tk.StringVar(value=os.getenv("OPENAI_API_KEY", ""))
 
+        # マイク選択用の状態
+        self.mic_device_var = tk.StringVar(value="")
+        self._mic_label_to_index: Dict[str, int] = {}
+        self._mic_devices_cache: List[Dict[str, Any]] = []
+
         # ビデオ録画機能の初期化
         # 会話システム優先: 2つ目のマイクがある場合のみ映像に音声を付ける
-        secondary_mic = get_secondary_mic_device(self.audio.input_device_index)
-        if secondary_mic is not None:
-            self.video_recorder = VideoRecorder(
-                record_audio=True,
-                audio_device_index=secondary_mic,
-                auto_detect_audio_device=False  # 明示的に指定するので自動検出は無効
-            )
-            print(f"[VideoRecorder] 映像に音声を付けます（2つ目のマイクを使用）")
-        else:
-            self.video_recorder = VideoRecorder(record_audio=False)
-            print(f"[VideoRecorder] 映像のみ録画（2つ目のマイクがないため音声なし）")
+        self.video_recorder: Optional[VideoRecorder] = None
+        self._configure_video_recorder_for_mic(self.audio.input_device_index, silent=True)
         self.video_recording_enabled = tk.BooleanVar(value=True)  # デフォルトで録画有効
 
         self.status_display_window = StatusDisplayWindow(self)
@@ -296,8 +296,11 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         session_container = ttk.Frame(main_frame)
         session_container.grid(row=row_idx, column=0, columnspan=5, sticky="ew", padx=5, pady=5)
 
-        session_frame = ttk.LabelFrame(session_container, text="セッション情報", padding="10")
-        session_frame.pack(side=tk.LEFT, anchor="nw")
+        session_left_column = ttk.Frame(session_container)
+        session_left_column.pack(side=tk.LEFT, anchor="nw")
+
+        session_frame = ttk.LabelFrame(session_left_column, text="セッション情報", padding="10")
+        session_frame.pack(side=tk.TOP, anchor="nw", fill=tk.X)
         session_frame.columnconfigure(1, weight=0)
 
         ttk.Label(session_frame, text="被験者番号:").grid(row=0, column=0, sticky=tk.W, pady=2, padx=5)
@@ -308,6 +311,37 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         self.subject_hint_label.grid(row=0, column=3, sticky=tk.W, pady=2, padx=(10,5))
         self.subject_id_var.trace_add("write", self._on_subject_id_change)
         self._update_subject_id_hint()
+
+        mic_frame = ttk.LabelFrame(session_left_column, text="会話マイク", padding="10")
+        mic_frame.pack(side=tk.TOP, anchor="nw", fill=tk.X, pady=(10, 0))
+        mic_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(mic_frame, text="マイクデバイス:").grid(row=0, column=0, sticky=tk.W, pady=2, padx=5)
+        self.mic_device_combo = ttk.Combobox(
+            mic_frame,
+            textvariable=self.mic_device_var,
+            state="readonly",
+            width=35
+        )
+        self.mic_device_combo.grid(row=0, column=1, sticky="ew", pady=2, padx=5)
+        self.mic_device_combo.bind("<<ComboboxSelected>>", self._on_mic_device_selected)
+
+        self.mic_refresh_button = ttk.Button(
+            mic_frame,
+            text="再読み込み",
+            width=10,
+            command=self._refresh_mic_devices
+        )
+        self.mic_refresh_button.grid(row=0, column=2, sticky=tk.W, pady=2, padx=5)
+
+        self.mic_device_hint_label = ttk.Label(
+            mic_frame,
+            text="マイク未選択",
+            foreground="red",
+            style='Status.TLabel'
+        )
+        self.mic_device_hint_label.grid(row=1, column=0, columnspan=3, sticky=tk.W, pady=(5,0), padx=5)
+        self._refresh_mic_devices()
 
         # --- LLM Settings Frame ---
         llm_frame = ttk.LabelFrame(session_container, text="LLM設定", padding="10")
@@ -2234,6 +2268,111 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
 
     def _log_to_console(self, message: str):
         print(f"[{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [App] {message}")
+
+    def _configure_video_recorder_for_mic(self, primary_mic_index: Optional[int], silent: bool = False) -> None:
+        """
+        会話用マイクの選択に応じてVideoRecorderを構築し直す。
+        映像録音中は設定を変更しない。
+        """
+        if self.video_recorder and getattr(self.video_recorder, "is_recording", False):
+            print("[VideoRecorder] 録画中のためマイク設定を変更できません")
+            return
+
+        secondary_mic = get_secondary_mic_device(primary_mic_index)
+        if secondary_mic is not None:
+            self.video_recorder = VideoRecorder(
+                record_audio=True,
+                audio_device_index=secondary_mic,
+                auto_detect_audio_device=False
+            )
+            if not silent:
+                print(f"[VideoRecorder] 映像に音声を付けます（会話マイク: {primary_mic_index}, 2台目: {secondary_mic}）")
+        else:
+            self.video_recorder = VideoRecorder(record_audio=False)
+            if not silent:
+                print(f"[VideoRecorder] 2台目のマイクが見つからないため映像のみ録画になります（会話マイク: {primary_mic_index}）")
+
+    def _format_mic_device_label(self, device: Dict[str, Any]) -> str:
+        samplerate = int(device.get('sample_rate') or 0)
+        sr_text = f"{samplerate:.0f}" if samplerate else "-"
+        default_mark = " *" if device.get('is_default') else ""
+        return f"[{device['index']}] {device['name']}{default_mark} ({sr_text}Hz/{device['channels']}ch)"
+
+    def _refresh_mic_devices(self, keep_selection: bool = True):
+        """マイクリストを再取得してコンボボックスを更新する"""
+        try:
+            devices = list_input_devices()
+        except Exception as e:
+            print(f"[AudioDevice] マイク一覧の取得に失敗しました: {e}")
+            devices = []
+
+        self._mic_devices_cache = devices
+        values = [self._format_mic_device_label(dev) for dev in devices]
+        self._mic_label_to_index = {label: dev['index'] for label, dev in zip(values, devices)}
+
+        if not devices:
+            self.mic_device_combo.configure(state="disabled")
+            self.mic_device_var.set("")
+            self.mic_device_hint_label.config(text="マイクが検出されませんでした", foreground="red")
+            return
+
+        self.mic_device_combo.configure(state="readonly")
+        self.mic_device_combo['values'] = values
+
+        target_index: Optional[int] = None
+        if keep_selection and self.audio.input_device_index is not None:
+            target_index = self.audio.input_device_index
+        elif values:
+            target_index = devices[0]['index']
+
+        selected_label = None
+        if target_index is not None:
+            for label, idx in self._mic_label_to_index.items():
+                if idx == target_index:
+                    selected_label = label
+                    break
+
+        if selected_label:
+            self.mic_device_var.set(selected_label)
+        else:
+            # デバイスが変わった/消えた場合は先頭を選択
+            selected_label = values[0]
+            self.mic_device_var.set(selected_label)
+            self.audio.input_device_index = self._mic_label_to_index[selected_label]
+            self._configure_video_recorder_for_mic(self.audio.input_device_index)
+
+        self._update_mic_hint()
+
+    def _update_mic_hint(self):
+        idx = self.audio.input_device_index
+        if idx is None:
+            self.mic_device_hint_label.config(text="デフォルトマイクを使用します", foreground="orange")
+            return
+
+        device = next((dev for dev in self._mic_devices_cache if dev['index'] == idx), None)
+        if device:
+            text = f"使用中: [{idx}] {device['name']}"
+            color = "green"
+        else:
+            text = f"使用中: [{idx}] (検出不可)"
+            color = "orange"
+
+        self.mic_device_hint_label.config(text=text, foreground=color)
+
+    def _on_mic_device_selected(self, event=None):
+        label = self.mic_device_var.get()
+        target_index = self._mic_label_to_index.get(label)
+        if target_index is None or target_index == self.audio.input_device_index:
+            self._update_mic_hint()
+            return
+
+        if self.is_conversing:
+            self._log_to_console("警告: 会話中にマイクを変更しました。必要に応じて会話を再開してください。")
+
+        self.audio.input_device_index = target_index
+        self._configure_video_recorder_for_mic(target_index)
+        self._log_to_console(f"会話マイクを変更: [{target_index}] {label}")
+        self._update_mic_hint()
 
     def start_conversation(self) -> None:
         if self.is_conversing or self.is_processing or self.is_measuring_baseline:

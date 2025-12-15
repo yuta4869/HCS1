@@ -111,7 +111,7 @@ USE_DEFAULT_MIC_AS_FALLBACK = True
 #   - Linux/Ubuntu (PulseAudio): "high"推奨
 import platform
 if platform.system() == "Linux":
-    AUDIO_CHUNK_SIZE = 4096  # Linux: 大きめのバッファ
+    AUDIO_CHUNK_SIZE = 4086  # Linux: 大きめのバッファ
     AUDIO_LATENCY = "high"   # Linux: 高レイテンシーで安定性確保
 else:
     AUDIO_CHUNK_SIZE = 2048  # macOS/Windows: 標準サイズ

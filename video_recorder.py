@@ -180,30 +180,47 @@ class VideoRecorder:
 
         print(f"[VideoRecorder] 映像録画ループ終了 (総フレーム数: {self._frame_count})")
 
-    def _merge_audio_video(self, video_path: str, audio_path: str, output_path: str) -> bool:
+    def _merge_audio_video(self, video_path: str, audio_path: Optional[str], output_path: str) -> bool:
         """
-        ffmpegを使用して映像と音声を結合する
+        ffmpegを使用して映像と音声を結合/再エンコードする
+        （H.264 + AACに変換して一般的なプレイヤーで確実に再生可能にする）
 
         Args:
             video_path: 映像ファイルパス
-            audio_path: 音声ファイルパス
+            audio_path: 音声ファイルパス (Noneの場合は映像のみ)
             output_path: 出力ファイルパス
 
         Returns:
             True: 成功, False: 失敗
         """
         try:
-            print(f"[VideoRecorder] 映像と音声を結合中...")
+            print(f"[VideoRecorder] FFmpegで最終ファイルを生成中... (audio={'あり' if audio_path else 'なし'})")
 
-            # ffmpegコマンドで結合（音声を再エンコード）
             cmd = [
                 'ffmpeg',
+                '-loglevel', 'error',
+                '-y',                 # 既存ファイルは問答無用で上書き
                 '-i', video_path,
-                '-i', audio_path,
-                '-c:v', 'copy',  # 映像はコピー（再エンコードなし）
-                '-c:a', 'aac',   # 音声はAACにエンコード
-                '-strict', 'experimental',
-                '-y',  # 上書き確認なし
+            ]
+
+            if audio_path:
+                cmd += ['-i', audio_path]
+
+            # libx264で再エンコードし、互換性の高いyuv420pに揃える
+            cmd += [
+                '-c:v', 'libx264',
+                '-preset', 'veryfast',
+                '-crf', '23',
+                '-pix_fmt', 'yuv420p',
+            ]
+
+            if audio_path:
+                cmd += ['-c:a', 'aac', '-b:a', '128k']
+            else:
+                cmd += ['-an']  # 音声トラックなし
+
+            cmd += [
+                '-movflags', '+faststart',  # moovを冒頭に配置して再生互換性を向上
                 output_path
             ]
 
@@ -211,21 +228,21 @@ class VideoRecorder:
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=30
+                timeout=120  # 再エンコードが入るので余裕を持たせる
             )
 
             if result.returncode == 0:
-                print(f"[VideoRecorder] 結合成功: {output_path}")
+                print(f"[VideoRecorder] FFmpeg処理成功: {output_path}")
                 return True
             else:
-                print(f"[VideoRecorder] 結合エラー: {result.stderr.decode()}")
+                print(f"[VideoRecorder] FFmpegエラー: {result.stderr.decode()}")
                 return False
 
         except subprocess.TimeoutExpired:
-            print(f"[VideoRecorder] 結合タイムアウト")
+            print(f"[VideoRecorder] FFmpeg処理がタイムアウトしました")
             return False
         except Exception as e:
-            print(f"[VideoRecorder] 結合中に例外発生: {e}")
+            print(f"[VideoRecorder] FFmpeg実行中に例外発生: {e}")
             return False
 
     def start_recording(self, session_timestamp: str, mode: str = "Fixed", subject_id: Optional[str] = None) -> bool:
@@ -397,32 +414,30 @@ class VideoRecorder:
 
         duration = (datetime.now() - self._start_time).total_seconds() if self._start_time else 0
 
-        # 映像と音声を結合
-        if audio_recorded and os.path.exists(self._temp_video_path) and os.path.exists(self._temp_audio_path):
-            if self._merge_audio_video(self._temp_video_path, self._temp_audio_path, self._current_filepath):
-                # 一時ファイルを削除
+        # 映像/音声ファイルをH.264ベースで最終化
+        if os.path.exists(self._temp_video_path):
+            audio_path = None
+            if audio_recorded and self._temp_audio_path and os.path.exists(self._temp_audio_path):
+                audio_path = self._temp_audio_path
+            elif audio_recorded:
+                print("[VideoRecorder] 警告: 音声有効のはずですが一時音声ファイルが見つかりません。映像のみで保存します。")
+
+            if self._merge_audio_video(self._temp_video_path, audio_path, self._current_filepath):
                 try:
                     os.remove(self._temp_video_path)
-                    os.remove(self._temp_audio_path)
+                    if audio_path:
+                        os.remove(audio_path)
                     print(f"[VideoRecorder] 一時ファイルを削除しました")
                 except Exception as e:
                     print(f"[VideoRecorder] 一時ファイル削除エラー: {e}")
             else:
-                print(f"[VideoRecorder] 警告: 結合に失敗したため、映像のみのファイルを保存します")
-                # 結合失敗時は映像のみのファイルをリネーム
+                print(f"[VideoRecorder] 警告: FFmpeg処理に失敗したため、一時映像をそのまま保存します (互換性低)")
                 try:
                     os.rename(self._temp_video_path, self._current_filepath)
-                    if os.path.exists(self._temp_audio_path):
-                        os.remove(self._temp_audio_path)
+                    if audio_path and os.path.exists(audio_path):
+                        os.remove(audio_path)
                 except Exception as e:
                     print(f"[VideoRecorder] ファイル保存エラー: {e}")
-        elif os.path.exists(self._temp_video_path):
-            # 音声がない場合は映像のみ
-            print(f"[VideoRecorder] 音声なし。映像のみを保存します")
-            try:
-                os.rename(self._temp_video_path, self._current_filepath)
-            except Exception as e:
-                print(f"[VideoRecorder] ファイル保存エラー: {e}")
 
         filepath = self._current_filepath
 
