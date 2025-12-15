@@ -19,9 +19,9 @@ except ImportError:
 
 # 解析用の定数
 _ECG_CONDITIONS = [
-    "Sin",
     "Fixed",
     "HRF",
+    "Sin",
     "HRF2_PID",
     "HRF2_Adaptive",
     "HRF2_GS",

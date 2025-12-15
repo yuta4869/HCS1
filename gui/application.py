@@ -48,10 +48,13 @@ from audio_device_utils import (
 from .status_window import StatusDisplayWindow
 from .ecg_analysis import (
     FILENAME_PATTERN, ANALYS_CONDITION_MAP, ANALYS_CONDITION_ORDER,
+    CONDITION_COLORS,
     run_batch_analysis as analys_run_batch_analysis,
     generate_box_plots as analys_generate_box_plots,
 )
 from .questionnaire_analysis import (
+    Q_CONDITION_ORDER,
+    Q_CONDITION_COLORS,
     generate_plots as analys_q_generate_plots,
 )
 from .realtime_monitor import RealtimeMonitorMixin
@@ -778,20 +781,43 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         # --- 条件設定 ---
         condition_frame = ttk.LabelFrame(main_frame, text="条件設定", padding="10")
         condition_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
-        condition_frame.columnconfigure(1, weight=1)
+        condition_frame.columnconfigure(0, weight=1)
         ttk.Label(condition_frame, text="解析・箱ひげ図に含める条件を選択してください。").grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=5, pady=(0, 5)
+            row=0, column=0, sticky="w", padx=5, pady=(0, 5)
         )
 
         self.ecg_condition_vars: Dict[str, tk.BooleanVar] = {}
         for idx, condition in enumerate(ANALYS_CONDITION_ORDER):
             var = tk.BooleanVar(value=True)
             self.ecg_condition_vars[condition] = var
+
+            row_frame = ttk.Frame(condition_frame)
+            row_frame.grid(row=1 + idx, column=0, sticky="ew", padx=5, pady=2)
+            row_frame.columnconfigure(1, weight=1)
+
+            color = CONDITION_COLORS.get(condition, "#CCCCCC")
+            color_indicator = tk.Canvas(row_frame, width=16, height=16, highlightthickness=0)
+            color_indicator.create_rectangle(0, 0, 16, 16, fill=color, outline="#666666")
+            color_indicator.grid(row=0, column=0, padx=(0, 8))
+
             ttk.Checkbutton(
-                condition_frame,
+                row_frame,
                 text=condition,
                 variable=var
-            ).grid(row=1 + idx, column=0, sticky="w", padx=5, pady=2)
+            ).grid(row=0, column=1, sticky="w")
+
+        ecg_condition_action_frame = ttk.Frame(condition_frame)
+        ecg_condition_action_frame.grid(row=1 + len(ANALYS_CONDITION_ORDER), column=0, sticky="w", padx=5, pady=(8, 0))
+        ttk.Button(
+            ecg_condition_action_frame,
+            text="全て選択",
+            command=lambda: self._set_all_ecg_conditions(True)
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(
+            ecg_condition_action_frame,
+            text="全て解除",
+            command=lambda: self._set_all_ecg_conditions(False)
+        ).pack(side=tk.LEFT)
 
         # --- 実行ボタン ---
         button_frame = ttk.Frame(main_frame)
@@ -849,9 +875,50 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         ttk.Entry(input_frame, textvariable=self.questionnaire_file_var, width=50).grid(row=1, column=1, sticky="ew", padx=5, pady=5)
         ttk.Button(input_frame, text="参照...", command=self._browse_questionnaire_file).grid(row=1, column=2, padx=5, pady=5)
 
+        # --- 条件フィルタ ---
+        condition_frame = ttk.LabelFrame(main_frame, text="条件フィルタ", padding="10")
+        condition_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        condition_frame.columnconfigure(0, weight=1)
+        ttk.Label(condition_frame, text="箱ひげ図に含める条件を選択してください。").grid(
+            row=0, column=0, sticky="w", padx=5, pady=(0, 5)
+        )
+
+        self.questionnaire_condition_vars: Dict[str, tk.BooleanVar] = {}
+        for idx, condition in enumerate(Q_CONDITION_ORDER):
+            var = tk.BooleanVar(value=True)
+            self.questionnaire_condition_vars[condition] = var
+
+            row_frame = ttk.Frame(condition_frame)
+            row_frame.grid(row=1 + idx, column=0, sticky="ew", padx=5, pady=2)
+            row_frame.columnconfigure(1, weight=1)
+
+            color = Q_CONDITION_COLORS.get(condition, "#CCCCCC")
+            color_indicator = tk.Canvas(row_frame, width=16, height=16, highlightthickness=0)
+            color_indicator.create_rectangle(0, 0, 16, 16, fill=color, outline="#666666")
+            color_indicator.grid(row=0, column=0, padx=(0, 8))
+
+            ttk.Checkbutton(
+                row_frame,
+                text=condition,
+                variable=var
+            ).grid(row=0, column=1, sticky="w")
+
+        condition_action_frame = ttk.Frame(condition_frame)
+        condition_action_frame.grid(row=1 + len(Q_CONDITION_ORDER), column=0, sticky="w", padx=5, pady=(8, 0))
+        ttk.Button(
+            condition_action_frame,
+            text="全て選択",
+            command=lambda: self._set_all_questionnaire_conditions(True)
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(
+            condition_action_frame,
+            text="全て解除",
+            command=lambda: self._set_all_questionnaire_conditions(False)
+        ).pack(side=tk.LEFT)
+
         # --- 実行ボタン ---
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=10)
+        button_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=10)
 
         self.questionnaire_run_button = ttk.Button(button_frame, text="箱ひげ図を作成", command=self._run_questionnaire_analysis)
         self.questionnaire_run_button.pack(side=tk.LEFT, padx=5)
@@ -859,14 +926,14 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         # --- ステータス表示 ---
         self.questionnaire_status_var = tk.StringVar(value="ファイルを選択してください。")
         status_label = ttk.Label(main_frame, textvariable=self.questionnaire_status_var, foreground="blue", wraplength=800)
-        status_label.grid(row=2, column=0, sticky="w", padx=10, pady=5)
+        status_label.grid(row=3, column=0, sticky="w", padx=10, pady=5)
 
         # --- 結果プレビュー用フレーム ---
         preview_frame = ttk.LabelFrame(main_frame, text="プレビュー", padding="10")
-        preview_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.grid(row=4, column=0, sticky="nsew", padx=5, pady=5)
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(3, weight=1)
+        main_frame.rowconfigure(4, weight=1)
 
         self.questionnaire_preview_frame = ttk.Frame(preview_frame)
         self.questionnaire_preview_frame.grid(row=0, column=0, sticky="nsew")
@@ -912,6 +979,23 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
             return list(ANALYS_CONDITION_ORDER)
         selected = [cond for cond, var in self.ecg_condition_vars.items() if var.get()]
         return selected
+
+    def _set_all_ecg_conditions(self, value: bool):
+        if not hasattr(self, "ecg_condition_vars"):
+            return
+        for var in self.ecg_condition_vars.values():
+            var.set(value)
+
+    def _get_selected_questionnaire_conditions(self) -> List[str]:
+        if not hasattr(self, "questionnaire_condition_vars"):
+            return list(Q_CONDITION_ORDER)
+        return [cond for cond, var in self.questionnaire_condition_vars.items() if var.get()]
+
+    def _set_all_questionnaire_conditions(self, value: bool):
+        if not hasattr(self, "questionnaire_condition_vars"):
+            return
+        for var in self.questionnaire_condition_vars.values():
+            var.set(value)
 
     def _run_ecg_analysis(self):
         """ECG/HRV解析を実行"""
@@ -1176,18 +1260,23 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
         if not file_path:
             messagebox.showwarning("ファイル未選択", "Excelファイルを選択してください。")
             return
+        selected_conditions = self._get_selected_questionnaire_conditions()
+        if not selected_conditions:
+            messagebox.showwarning("条件未選択", "少なくとも1つの条件を選択してください。")
+            return
 
         self.questionnaire_run_button.config(state=tk.DISABLED)
         self.questionnaire_status_var.set("箱ひげ図を作成中...")
         self.update_idletasks()
 
-        def run_in_thread():
+        def run_in_thread(conditions: List[str]):
             try:
-                result = analys_q_generate_plots(file_path)
+                result = analys_q_generate_plots(file_path, condition_order=conditions)
                 self.after(0, lambda: self._display_questionnaire_figures(result["figures"]))
                 self.after(0, lambda: self.questionnaire_status_var.set(
                     f"サマリー: {result['summary_path'].name} / "
-                    f"設問別: {len(result['per_question_paths'])}枚を question_boxplots フォルダに保存"
+                    f"設問別: {len(result['per_question_paths'])}枚を question_boxplots フォルダに保存 "
+                    f"(条件: {', '.join(conditions)})"
                 ))
                 self.after(0, lambda: messagebox.showinfo(
                     "完了",
@@ -1200,7 +1289,7 @@ class Application(RealtimeMonitorMixin, tk.Toplevel):
             finally:
                 self.after(0, lambda: self.questionnaire_run_button.config(state=tk.NORMAL))
 
-        threading.Thread(target=run_in_thread, daemon=True).start()
+        threading.Thread(target=run_in_thread, args=(selected_conditions,), daemon=True).start()
 
     def _on_subject_id_change(self, *_) -> None:
         self._update_subject_id_hint()
