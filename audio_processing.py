@@ -662,8 +662,22 @@ class AudioProcessor:
 
         try:
             os.makedirs(os.path.dirname(filename) or '.', exist_ok=True)
-            print(f"[record_audio] Opening InputStream: device={self.input_device_index}, rate={self.sample_rate}, blocksize={self.chunk_size}")
-            with sd.InputStream(samplerate=self.sample_rate, channels=self.channels,
+
+            # デバイスのネイティブサンプルレートを取得
+            actual_samplerate = self.sample_rate
+            if self.input_device_index is not None:
+                try:
+                    dev_info = sd.query_devices(self.input_device_index)
+                    native_rate = int(dev_info['default_samplerate'])
+                    # デバイスが16000Hzをサポートしていない場合、ネイティブレートを使用
+                    if native_rate != self.sample_rate:
+                        print(f"[record_audio] デバイスのネイティブレート({native_rate}Hz)を使用します")
+                        actual_samplerate = native_rate
+                except Exception as e:
+                    print(f"[record_audio] デバイス情報取得エラー: {e}")
+
+            print(f"[record_audio] Opening InputStream: device={self.input_device_index}, rate={actual_samplerate}, blocksize={self.chunk_size}")
+            with sd.InputStream(samplerate=actual_samplerate, channels=self.channels,
                               callback=callback, blocksize=self.chunk_size, dtype='float32',
                               device=self.input_device_index):
                 print("[record_audio] InputStream opened successfully, starting recording loop...")
@@ -737,15 +751,15 @@ class AudioProcessor:
 
                 if recorded_chunks:
                     audio_data = np.concatenate(recorded_chunks, axis=0)
-                    duration = len(audio_data) / self.sample_rate
+                    duration = len(audio_data) / actual_samplerate
                     if duration < self.min_audio_length or np.max(np.abs(audio_data)) < self.silent_threshold * 0.5:
                         print("Recording too short or nearly silent. Not saving.")
                         recording_success = False
                     else:
                         if not filename.lower().endswith(".wav"): filename += ".wav"
                         try:
-                            sf.write(filename, audio_data.astype(np.float32), self.sample_rate, subtype='PCM_16')
-                            print(f"Recording complete and saved: {filename} ({duration:.2f}s)")
+                            sf.write(filename, audio_data.astype(np.float32), actual_samplerate, subtype='PCM_16')
+                            print(f"Recording complete and saved: {filename} ({duration:.2f}s, {actual_samplerate}Hz)")
                             recording_success = True
                         except Exception as e_write: print(f"Error writing audio to file ({filename}): {e_write}")
                 else:
