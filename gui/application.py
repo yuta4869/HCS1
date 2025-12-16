@@ -2710,8 +2710,13 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             greeting_text = "あなたの趣味について教えてください"
             self.after(0, lambda: self._update_ai_speech_display(greeting_text))
             if not self.audio.stop_event.is_set():
-                _, _, _ = self.audio.text_to_speech(greeting_text, "greeting_output.wav")
+                _, greeting_start, greeting_end = self.audio.text_to_speech(greeting_text, "greeting_output.wav")
                 self._log_to_console(f"初期挨拶 再生完了: {greeting_text}")
+                # 定型文をconversation_logに記録
+                self.conversation_manager.add_message(
+                    "assistant", greeting_text,
+                    start_time=greeting_start, end_time=greeting_end
+                )
             self.after(0, lambda: self._set_status_display_prompt("話してください") ) 
 
             while self.is_conversing and not self.audio.stop_event.is_set():
