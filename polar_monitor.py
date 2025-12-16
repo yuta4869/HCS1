@@ -537,52 +537,94 @@ class H10Monitor:
 
     async def connect_to_device(self) -> bool:
         """Connects to the Polar H10 sensor."""
-        try:
-            print("Searching for Polar H10...")
-            devices = await BleakScanner.discover(timeout=15.0, return_adv=False)
-            self.device = next((d for d in devices if d.name and config.POLAR_H10_NAME.lower() in d.name.lower()), None)
+        import platform
+        is_linux = platform.system() == "Linux"
+        max_retries = 3 if is_linux else 1
 
-            if not self.device:
-                print(f"{config.POLAR_H10_NAME} not found.")
-                return False
+        # 既存の接続をクリーンアップ
+        if self.client:
+            print("Cleaning up existing H10 client before reconnect...")
+            try:
+                if self.client.is_connected:
+                    await self.client.disconnect()
+            except Exception as e:
+                print(f"Cleanup disconnect error (ignored): {e}")
+            self.client = None
+            if is_linux:
+                await asyncio.sleep(1.0)  # BlueZが状態をリセットするまで待機
 
-            print(f"Attempting to connect to H10: {self.device.address}")
-            self.client = BleakClient(self.device.address, timeout=20.0) # Use address string
-            await self.client.connect()
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    print(f"Retry attempt {attempt + 1}/{max_retries}...")
+                    await asyncio.sleep(2.0)  # リトライ前に待機
 
-            if self.client.is_connected:
-                print(f"Connected to {config.POLAR_H10_NAME}: {self.device.address}")
+                print("Searching for Polar H10...")
+                devices = await BleakScanner.discover(timeout=15.0, return_adv=False)
+                self.device = next((d for d in devices if d.name and config.POLAR_H10_NAME.lower() in d.name.lower()), None)
 
-                # Enable ECG stream
-                print("Sending ECG stream start command...")
-                await self.client.write_gatt_char(config.PMD_CONTROL, config.ECG_WRITE, response=True)
-                print("ECG stream start command sent.")
-                await self.client.start_notify(config.PMD_DATA, self.ecg_data_handler)
-                print("Started receiving ECG data (H10)")
+                if not self.device:
+                    print(f"{config.POLAR_H10_NAME} not found.")
+                    return False
 
-                # Enable HR stream
-                print("Starting HR stream...")
-                await self.client.start_notify(config.HR_CHARACTERISTIC_UUID, self.h10_hr_notification_handler)
-                print("Started receiving heart rate data (H10)")
+                print(f"Attempting to connect to H10: {self.device.address}")
+                self.client = BleakClient(self.device.address, timeout=20.0)
 
-                self.is_connected = True
-                return True
-            else:
-                print(f"Failed to connect to {config.POLAR_H10_NAME}.")
+                # Linux(BlueZ)の場合、接続前に少し待機
+                if is_linux:
+                    await asyncio.sleep(0.5)
+
+                await self.client.connect()
+
+                if self.client.is_connected:
+                    print(f"Connected to {config.POLAR_H10_NAME}: {self.device.address}")
+
+                    # Enable ECG stream
+                    print("Sending ECG stream start command...")
+                    await self.client.write_gatt_char(config.PMD_CONTROL, config.ECG_WRITE, response=True)
+                    print("ECG stream start command sent.")
+                    await self.client.start_notify(config.PMD_DATA, self.ecg_data_handler)
+                    print("Started receiving ECG data (H10)")
+
+                    # Enable HR stream
+                    print("Starting HR stream...")
+                    await self.client.start_notify(config.HR_CHARACTERISTIC_UUID, self.h10_hr_notification_handler)
+                    print("Started receiving heart rate data (H10)")
+
+                    self.is_connected = True
+                    return True
+                else:
+                    print(f"Failed to connect to {config.POLAR_H10_NAME}.")
+                    self.client = None
+
+            except asyncio.TimeoutError:
+                print("H10 search or connection timed out.")
                 self.client = None
-                return False
-        except asyncio.TimeoutError:
-            print("H10 search or connection timed out.")
-            self.client = None
-            return False
-        except Exception as e:
-            print(f"Error during H10 device connection: {e}")
-            if self.client and self.client.is_connected:
-                try: await self.client.disconnect()
-                except Exception: pass
-            self.client = None
-            self.is_connected = False
-            return False
+            except Exception as e:
+                error_str = str(e)
+                print(f"Error during H10 device connection: {e}")
+
+                # BlueZ InProgress エラーの場合はリトライ
+                if is_linux and "InProgress" in error_str:
+                    print("BlueZ 'InProgress' error detected. Waiting before retry...")
+                    if self.client:
+                        try:
+                            await self.client.disconnect()
+                        except Exception:
+                            pass
+                    self.client = None
+                    await asyncio.sleep(3.0)  # BlueZが状態をリセットするまで待機
+                    continue
+
+                if self.client and self.client.is_connected:
+                    try:
+                        await self.client.disconnect()
+                    except Exception:
+                        pass
+                self.client = None
+
+        self.is_connected = False
+        return False
 
     async def disconnect(self):
         """Disconnects from the H10 sensor."""
