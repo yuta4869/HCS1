@@ -27,8 +27,9 @@ _ECG_CONDITIONS = [
     "HRF2_Robust",
 ]
 _FILENAME_COND_PATTERN = "|".join(_ECG_CONDITIONS)
+# ECGファイルのみを対象とする（h10_ecg_sessionで始まるファイル）
 FILENAME_PATTERN = re.compile(
-    rf".*_No(?P<subject>\d+)_\d{{8}}_\d{{6}}_(?P<condition>{_FILENAME_COND_PATTERN})\.csv$",
+    rf"h10_ecg_session_No(?P<subject>\d+)_\d{{8}}_\d{{6}}_(?P<condition>{_FILENAME_COND_PATTERN})\.csv$",
     re.IGNORECASE,
 )
 ANALYS_CONDITION_MAP = {
