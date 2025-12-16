@@ -96,6 +96,10 @@ class TimeseriesAnalysisMixin:
         ttk.Checkbutton(param_frame, text="全条件統合グラフも生成",
                         variable=self.ts_generate_combined_var).grid(row=2, column=0, columnspan=2, sticky="w", padx=5, pady=5)
 
+        self.ts_show_speech_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(param_frame, text="発言時間帯を色付け表示",
+                        variable=self.ts_show_speech_var).grid(row=2, column=2, columnspan=2, sticky="w", padx=5, pady=5)
+
         # --- 実行ボタン ---
         btn_frame = ttk.Frame(main_frame)
         btn_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=10)
@@ -204,14 +208,27 @@ class TimeseriesAnalysisMixin:
             self._ts_log("エラー: 有効なデータが読み込めませんでした。")
             return
 
+        # 発言時間帯の色付けオプション
+        show_speech = self.ts_show_speech_var.get()
+
         # グラフ生成
         self._ts_log("\n=== グラフ生成 ===")
 
         # 条件別グラフ（HR, RMSSD, SDNN）
         for condition, df in condition_data.items():
+            # 発言時間帯を取得
+            speech_intervals = None
+            if show_speech:
+                conv_log_path = self._ts_find_conversation_log(input_folder, subject_id, condition)
+                if conv_log_path:
+                    self._ts_log(f"  発言ログ: {os.path.basename(conv_log_path)}")
+                    speech_intervals = self._ts_load_speech_intervals(conv_log_path)
+                    self._ts_log(f"    -> {len(speech_intervals)}件の発言を検出")
+
             self._ts_generate_condition_graphs(
                 subject_id, condition, df, output_folder,
-                reference_hr, target_hr, show_reference, show_target
+                reference_hr, target_hr, show_reference, show_target,
+                speech_intervals=speech_intervals
             )
 
         # 全条件統合グラフ
@@ -228,7 +245,8 @@ class TimeseriesAnalysisMixin:
             self._ts_log(f"検出したHRセッションファイル数: {len(hr_session_files)}")
             self._ts_generate_hr_session_graphs(
                 hr_session_files, output_folder,
-                reference_hr, target_hr, show_reference, show_target
+                reference_hr, target_hr, show_reference, show_target,
+                show_speech=show_speech
             )
         else:
             self._ts_log("HRセッションファイル (h10_hr_session_*.csv, verity_hr_session_*.csv) は見つかりませんでした。")
@@ -286,7 +304,8 @@ class TimeseriesAnalysisMixin:
         reference_hr: float,
         target_hr: float,
         show_reference: bool,
-        show_target: bool
+        show_target: bool,
+        speech_intervals: Optional[List[Tuple[float, float, str]]] = None
     ) -> None:
         """条件別のグラフを生成"""
         color = CONDITION_COLORS.get(condition, '#666666')
@@ -301,7 +320,8 @@ class TimeseriesAnalysisMixin:
                 "Time (sec)", "HR (BPM)",
                 color, output_folder, filename,
                 reference_hr if show_reference else None,
-                target_hr if show_target else None
+                target_hr if show_target else None,
+                speech_intervals=speech_intervals
             )
             self._ts_log(f"  生成: {filename}")
 
@@ -312,7 +332,8 @@ class TimeseriesAnalysisMixin:
                 time_col, df['RMSSD'].values,
                 f"{subject_id} {condition} - RMSSD",
                 "Time (sec)", "RMSSD (ms)",
-                color, output_folder, filename
+                color, output_folder, filename,
+                speech_intervals=speech_intervals
             )
             self._ts_log(f"  生成: {filename}")
 
@@ -323,7 +344,8 @@ class TimeseriesAnalysisMixin:
                 time_col, df['SDNN'].values,
                 f"{subject_id} {condition} - SDNN",
                 "Time (sec)", "SDNN (ms)",
-                color, output_folder, filename
+                color, output_folder, filename,
+                speech_intervals=speech_intervals
             )
             self._ts_log(f"  生成: {filename}")
 
@@ -338,10 +360,17 @@ class TimeseriesAnalysisMixin:
         output_folder: str,
         filename: str,
         reference_line: Optional[float] = None,
-        target_line: Optional[float] = None
+        target_line: Optional[float] = None,
+        speech_intervals: Optional[List[Tuple[float, float, str]]] = None
     ) -> None:
         """単一グラフを生成"""
         fig, ax = plt.subplots(figsize=(10, 5))
+
+        # 発言時間帯を先にプロット（データラインの後ろに表示）
+        if speech_intervals:
+            y_min = np.nanmin(value_data) if len(value_data) > 0 else 0
+            y_max = np.nanmax(value_data) if len(value_data) > 0 else 100
+            self._ts_plot_speech_intervals(ax, speech_intervals, y_min, y_max)
 
         ax.plot(time_data, value_data, color=color, linewidth=1.5, label=ylabel)
 
@@ -517,7 +546,8 @@ class TimeseriesAnalysisMixin:
         reference_hr: float,
         target_hr: float,
         show_reference: bool,
-        show_target: bool
+        show_target: bool,
+        show_speech: bool = False
     ) -> None:
         """HRセッションファイルからHRグラフを生成"""
         for filepath, device_type, subject_id, timestamp, mode in hr_files:
@@ -544,11 +574,22 @@ class TimeseriesAnalysisMixin:
                     self._ts_log(f"  警告: タイムスタンプ解析失敗: {e}")
                     # インデックスを使用
                     elapsed_seconds = np.arange(len(df))
+                    start_time = None
 
                 hr_values = df['Heart Rate (BPM)'].values
 
                 # 条件名（mode）を正規化
                 mode_normalized = self._ts_normalize_condition(mode)
+
+                # 発言時間帯を取得
+                speech_intervals = None
+                if show_speech:
+                    input_folder = os.path.dirname(filepath)
+                    conv_log_path = self._ts_find_conversation_log(input_folder, subject_id, mode_normalized)
+                    if conv_log_path:
+                        self._ts_log(f"  発言ログ: {os.path.basename(conv_log_path)}")
+                        speech_intervals = self._ts_load_speech_intervals(conv_log_path, start_time)
+                        self._ts_log(f"    -> {len(speech_intervals)}件の発言を検出")
 
                 # グラフ生成
                 color = CONDITION_COLORS.get(mode_normalized, '#666666')
@@ -561,9 +602,132 @@ class TimeseriesAnalysisMixin:
                     "Time (sec)", "HR (BPM)",
                     color, output_folder, filename,
                     reference_hr if show_reference else None,
-                    target_hr if show_target else None
+                    target_hr if show_target else None,
+                    speech_intervals=speech_intervals
                 )
                 self._ts_log(f"  生成: {filename}")
 
             except Exception as e:
                 self._ts_log(f"  エラー: {e}")
+
+    def _ts_find_conversation_log(
+        self,
+        folder: str,
+        subject_id: str,
+        condition: str
+    ) -> Optional[str]:
+        """対応するconversation_logファイルを検索
+
+        Args:
+            folder: 検索対象フォルダ
+            subject_id: 被験者ID (例: "No1")
+            condition: 条件名 (例: "Fixed", "HRF2_Robust")
+
+        Returns:
+            見つかった場合はファイルパス、見つからない場合はNone
+        """
+        # パターン: conversation_log_{subject_id}_{timestamp}_{condition}.csv
+        pattern = re.compile(
+            rf"conversation_log_{re.escape(subject_id)}_\d{{8}}_\d{{6}}_{re.escape(condition)}\.csv$",
+            re.IGNORECASE
+        )
+
+        for filename in os.listdir(folder):
+            if pattern.match(filename):
+                return os.path.join(folder, filename)
+
+        return None
+
+    def _ts_load_speech_intervals(
+        self,
+        conversation_log_path: str,
+        data_start_time: Optional[datetime] = None
+    ) -> List[Tuple[float, float, str]]:
+        """conversation_logから発言時間帯を読み込む
+
+        Args:
+            conversation_log_path: conversation_logファイルのパス
+            data_start_time: データの開始時刻（指定しない場合は最初の発言から計算）
+
+        Returns:
+            List of (start_sec, end_sec, role) - role is 'user' or 'assistant'
+        """
+        try:
+            df = pd.read_csv(conversation_log_path, encoding='utf-8')
+        except Exception as e:
+            self._ts_log(f"  conversation_log読み込みエラー: {e}")
+            return []
+
+        required_cols = ['start_time', 'end_time', 'role']
+        if not all(col in df.columns for col in required_cols):
+            self._ts_log(f"  警告: conversation_logに必要な列がありません")
+            return []
+
+        intervals = []
+
+        # データ開始時刻を特定（最初の発言のstart_timeを使用）
+        try:
+            first_start = pd.to_datetime(df['start_time'].iloc[0])
+            if data_start_time is None:
+                data_start_time = first_start
+        except Exception:
+            self._ts_log(f"  警告: start_timeの解析に失敗")
+            return []
+
+        for _, row in df.iterrows():
+            try:
+                start_dt = pd.to_datetime(row['start_time'])
+                end_dt = pd.to_datetime(row['end_time'])
+                role = row['role'].lower()
+
+                # 開始時刻からの経過秒数に変換
+                start_sec = (start_dt - data_start_time).total_seconds()
+                end_sec = (end_dt - data_start_time).total_seconds()
+
+                # 負の値はスキップ
+                if start_sec < 0:
+                    continue
+
+                intervals.append((start_sec, end_sec, role))
+            except Exception:
+                continue
+
+        return intervals
+
+    def _ts_plot_speech_intervals(
+        self,
+        ax,
+        intervals: List[Tuple[float, float, str]],
+        y_min: float,
+        y_max: float
+    ) -> None:
+        """発言時間帯を色付けしてプロット
+
+        Args:
+            ax: matplotlib axes
+            intervals: List of (start_sec, end_sec, role)
+            y_min: y軸の最小値
+            y_max: y軸の最大値
+        """
+        # 色設定
+        USER_COLOR = '#FFCCCC'  # 薄い赤
+        ASSISTANT_COLOR = '#CCCCFF'  # 薄い青
+
+        user_plotted = False
+        assistant_plotted = False
+
+        for start_sec, end_sec, role in intervals:
+            if role == 'user':
+                color = USER_COLOR
+                if not user_plotted:
+                    ax.axvspan(start_sec, end_sec, alpha=0.5, color=color, label='人の発言')
+                    user_plotted = True
+                else:
+                    ax.axvspan(start_sec, end_sec, alpha=0.5, color=color)
+            elif role == 'assistant':
+                color = ASSISTANT_COLOR
+                if not assistant_plotted:
+                    ax.axvspan(start_sec, end_sec, alpha=0.5, color=color, label='ボットの発言')
+                    assistant_plotted = True
+                else:
+                    ax.axvspan(start_sec, end_sec, alpha=0.5, color=color)
