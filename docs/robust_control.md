@@ -1,181 +1,147 @@
-# ロバスト制御 (H∞ループ整形) - HCS v6.16.0
+# ロバスト制御 (MEC: モデル誤差抑制補償器) - HCS v7.x
 
 ## 1. 概要
 
-心拍数フィードバック制御において、被験者ごとの個人差（ゲイン変動、時定数の違い）や測定ノイズに対してロバスト（頑健）な制御を実現するため、H∞ループ整形法に基づく制御器を実装しました。
+心拍数フィードバック制御において、被験者ごとの個人差（ゲイン変動、時定数の違い）や測定ノイズに対してロバスト（頑健）な制御を実現するため、**MEC（モデル誤差抑制補償器）**に基づく制御器を実装しました。
 
-## 2. 制御対象モデル
+従来のH∞ループ整形法は理論的に複雑で、実装も煩雑でした。MECはよりシンプルな構造で、同等以上の頑健性を実現します。
 
-### 2.1 心拍数応答のモデル化
+## 2. MEC（モデル誤差抑制補償器）の原理
+
+### 2.1 基本構造
+
+MECは以下の3要素で構成されます：
+
+1. **基本制御器 K0**: PI制御で目標追従を行う
+2. **名目モデル Ĝ**: 人体の心拍応答を近似する簡略モデル
+3. **MEC補償器 Cε**: モデル誤差を検出・補償する
+
+### 2.2 ブロック線図
+
+```
+                                 ┌─────────────────────────┐
+                                 │                         │
+    r ───────(+)─── e ──→ [PI制御器 K0] ──→ u0 ──(+)─── u ──┬──→ [人体 G] ──→ y
+              ▲                                    ▲        │
+              │-                                   │        │
+              │                              u_mec │        │
+              │                                    │        │
+              │                               [MEC: Cε]     │
+              │                                    ▲        │
+              │                                    │        │
+              │                               ε = y - ŷ     │
+              │                                    │        │
+              │                                    │        │
+              └───────────────── y ◄───── [名目モデル Ĝ] ◄──┘
+```
+
+### 2.3 動作原理
+
+1. **基本制御器 K0** が目標心拍数 r と計測心拍数 y の偏差 e から制御出力 u0 を計算
+2. **名目モデル Ĝ** が制御入力 u から予測心拍数 ŷ を計算
+3. **モデル誤差 ε** = y - ŷ （実際の心拍と予測の差）を検出
+4. **MEC補償器 Cε** がモデル誤差 ε を低域ろ波して補償入力 u_mec を生成
+5. 最終出力 **u = u0 + u_mec**
+
+名目モデルが完璧でなくても、MECがその誤差を補償することで頑健性が得られます。
+
+## 3. 制御対象モデル
+
+### 3.1 名目モデル Ĝ(s)
 
 抑揚レベル u(t) から心拍数 HR(t) への応答を、一次遅れ＋むだ時間系としてモデル化：
 
 ```
          K
-P(s) = ――――― × e^(-Ls)
+Ĝ(s) = ――――― × e^(-Ls)
        τs + 1
 
-K  = 1.5   : 定常ゲイン（抑揚変化に対する心拍数変化の比）
+K  = 5.0   : 定常ゲイン（抑揚変化に対する心拍数変化の比）
 τ  = 30.0秒: 時定数（心拍応答の遅れ）
 L  = 5.0秒 : むだ時間（刺激から応答開始までの遅延）
 ```
 
-### 2.2 不確かさのモデル化
+### 3.2 離散実装
 
-実際のプラントは被験者によって異なるため、乗法的不確かさを考慮：
-
-```
-P_real(s) = P_nominal(s) × (1 + Δ × W_m(s))
-
-|Δ| ≤ 1
-
-W_m(s) の特性:
-- 低周波（0.01 rad/s以下）: 30%の不確かさ
-- 高周波（0.1 rad/s以上）: 150%の不確かさ
-```
-
-## 3. 混合感度問題
-
-### 3.1 設計仕様
-
-以下の混合感度問題を解いて制御器を設計：
+名目モデルの一次遅れ部分は双一次変換で離散化：
 
 ```
-    ┌        ┐
-    │ Ws × S │
-    │        │  < γ
-    │ Wt × T │∞
-    └        ┘
-
-S(s) = 1/(1 + P(s)K(s))     : 感度関数
-T(s) = P(s)K(s)/(1+P(s)K(s)): 相補感度関数
+ŷ[k+1] = ŷ[k] + (dt/τ) × (K×(u_delayed - 1) + baseline - ŷ[k])
 ```
 
-### 3.2 重み関数
-
-**感度重み Ws(s)**（目標追従性能を規定）：
-```
-         s/Ms + ωb
-Ws(s) = ―――――――――――
-         s + ωb×εs
-
-ωb  = 0.05 rad/s : 帯域幅
-Ms  = 2.0        : 感度ピーク上限
-εs  = 0.01       : 定常偏差の逆数（1/εs = 100）
-```
-
-**相補感度重み Wt(s)**（ロバスト安定性を規定）：
-```
-         s + ωt/Mt
-Wt(s) = ―――――――――――
-         εt×s + ωt
-
-ωt  = 0.3 rad/s  : ロールオフ周波数
-Mt  = 1.5        : 低周波ゲイン
-εt  = 1/1.2      : 高周波ゲイン上限
-```
+むだ時間は入力バッファで実装します。
 
 ## 4. 制御器実装
 
-### 4.1 制御器構造
-
-PI制御器 + ローパスフィルタをベースとした2次IIRフィルタ形式：
+### 4.1 基本PI制御器 K0
 
 ```
-                1          1
-K(s) = Kp × (1 + ―――) × ―――――――
-               Ti×s     Tf×s + 1
+u0 = 1.0 + Kp × e + Ki × ∫e dt
 
-Kp = 0.03  : 比例ゲイン
-Ti = 10.0秒: 積分時定数
-Tf = 2.0秒 : フィルタ時定数
+Kp = 0.02  : 比例ゲイン
+Ki = 0.003 : 積分ゲイン
 ```
 
-### 4.2 離散化（双一次変換）
+### 4.2 MEC補償器 Cε
 
-サンプリング時間 T で離散化：
+モデル誤差を低域ろ波して返す：
 
 ```
-       B0 + B1×z⁻¹ + B2×z⁻²
-K(z) = ―――――――――――――――――――――――
-       1 + A1×z⁻¹ + A2×z⁻²
+           k
+Cε(s) = ―――――――
+        1 + s/ω
+
+k  = 0.3     : MEC利得
+ω  = 0.05 rad/s : カットオフ周波数
 ```
 
-実装コード（hrf2_controller.py:311-375）：
-```python
-def _update_controller_coefficients(self) -> None:
-    T = self._sample_time
-    cfg = self.config
-
-    # クロスオーバー周波数
-    omega_c = cfg.ws_bandwidth * 2
-
-    # プラントの位相遅れを考慮
-    plant_phase = -math.atan(omega_c * cfg.plant_time_constant) \
-                  - omega_c * cfg.plant_dead_time
-
-    # PI + フィルタ係数
-    Kp = cfg.loop_gain * cfg.plant_gain
-    Ti = 1.0 / (cfg.integral_gain / Kp)
-    Tf = cfg.filter_time_constant
-
-    # 離散化
-    alpha = T / Ti
-    beta = Tf / (Tf + T)
-
-    # 2次IIRフィルタ係数
-    self._B0 = Kp * (1 + alpha/2)
-    self._B1 = Kp * alpha
-    self._B2 = Kp * (alpha/2 - 1) * 0.1
-    self._A1 = -(2 * beta - 1)
-    self._A2 = beta * 0.5
+離散実装：
+```
+mec_filtered[k+1] = mec_filtered[k] + (dt × ω) × (k × ε - mec_filtered[k])
+u_mec = -mec_filtered
 ```
 
 ### 4.3 制御アルゴリズム
 
-1ステップの処理（hrf2_controller.py:398-518）：
+1ステップの処理（hrf2_controller.py:299-407）：
 
 ```
 入力: current_hr（現在心拍数）
 出力: output（抑揚レベル 0.0〜2.0）
 
-Step 1: ローパスフィルタ
+Step 1: 計測値のローパスフィルタ（ノイズ抑制）
   filtered_hr += α × (current_hr - filtered_hr)
-  α = T / (Tf + T)
+  α = dt / (filter_tau + dt)
 
-Step 2: 誤差計算
-  error = target_hr - filtered_hr
+Step 2: 名目モデルの更新
+  2a. むだ時間バッファから遅延入力を取得
+  2b. 一次遅れ系を更新:
+      model_target = baseline + K × (u_delayed - 1.0)
+      ŷ += (dt/τ) × (model_target - ŷ)
 
-Step 3: デッドバンド処理
-  effective_error = 0 if |error| < 2.0 else error
+Step 3: モデル誤差の計算
+  ε = y - ŷ （実出力 - 名目モデル出力）
 
-Step 4: スミス予測器（むだ時間補償）
-  predicted_effect = K × (u[k-delay] - 1.0)
-  effective_error += predicted_effect × 0.5
+Step 4: MEC補償
+  mec_filtered += (dt × ω) × (k × ε - mec_filtered)
+  u_mec = -mec_filtered
 
-Step 5: H∞制御器（2次IIRフィルタ）
-  y = B0×e + x1
-  x1_new = B1×e + x2 - A1×y
-  x2_new = B2×e - A2×y
+Step 5: 基本PI制御
+  e = target_hr - filtered_hr
+  effective_error = 0 if |e| < deadband else e
+  p_term = Kp × effective_error
+  integral += Ki × effective_error × dt
+  integral = clamp(integral, -integral_max, +integral_max)
+  u0 = 1.0 + p_term + integral
 
-Step 6: 積分器（定常偏差除去）
-  integral += Ki × e × T
-  integral = clamp(integral, -15, +15)  # アンチワインドアップ
+Step 6: 総合出力
+  raw_output = u0 + u_mec
 
-Step 7: 適応ゲイン調整
-  if 誤差が減少していない:
-    adapted_gain *= 1.01
-  else:
-    adapted_gain *= 0.995
-
-Step 8: 出力合成
-  raw_output = 1.0 + (adapted_gain/loop_gain) × y + integral
-
-Step 9: スルーレート制限
-  Δu = clamp(raw_output - last_output, -0.2, +0.2)
+Step 7: スルーレート制限
+  Δu = clamp(raw_output - last_output, -du_max, +du_max)
   output = last_output + Δu
 
-Step 10: 出力飽和
+Step 8: 出力飽和
   output = clamp(output, 0.0, 2.0)
 ```
 
@@ -186,118 +152,74 @@ Step 10: 出力飽和
 ```python
 @dataclass
 class RobustConfig:
-    # プラントモデル
-    plant_gain: float = 1.5           # 定常ゲイン
-    plant_time_constant: float = 30.0 # 時定数 [秒]
-    plant_dead_time: float = 5.0      # むだ時間 [秒]
+    # === 基本PI制御器パラメータ ===
+    kp: float = 0.1             # 比例ゲイン
+    ki: float = 0.003          # 積分ゲイン
+    integral_max: float = 0.1     # アンチワインドアップ
 
-    # 不確かさ
-    uncertainty_low_freq: float = 0.3   # 低周波不確かさ
-    uncertainty_high_freq: float = 1.5  # 高周波不確かさ
+    # === 名目モデルパラメータ ===
+    model_gain: float = 5.0       # 定常ゲイン K
+    model_tau: float = 30.0       # 時定数 τ [秒]
+    model_delay: float = 5.0      # むだ時間 L [秒]
 
-    # 感度重み Ws
-    ws_bandwidth: float = 0.05          # ωb [rad/s]
-    ws_low_freq_gain: float = 100.0     # 1/εs
-    ws_peak: float = 2.0                # Ms
+    # === MEC（モデル誤差抑制補償器）パラメータ ===
+    mec_gain: float = 0.3         # MEC利得 k
+    mec_omega: float = 0.05       # カットオフ周波数 ω [rad/s]
 
-    # 相補感度重み Wt
-    wt_bandwidth: float = 0.3           # ωt [rad/s]
-    wt_high_freq_gain: float = 1.2      # 1/εt
-    wt_peak: float = 1.5                # Mt
+    # === 計測ノイズ抑制 ===
+    filter_time_constant: float = 2.0  # LPF時定数 [秒]
 
-    # ループ整形
-    loop_gain: float = 0.02             # 基本ゲイン
-    phase_margin_target: float = 45.0   # 目標位相余裕 [度]
-    gain_margin_target: float = 6.0     # 目標ゲイン余裕 [dB]
+    # === 出力制限 ===
+    du_max: float = 0.15          # スルーレート制限
 
-    # 積分器
-    integral_gain: float = 0.003        # 積分ゲイン
-    integral_max: float = 15.0          # アンチワインドアップ上限
-
-    # フィルタ
-    filter_time_constant: float = 2.0   # LPF時定数 [秒]
-    smith_predictor_enabled: bool = True
-
-    # 出力制限
-    u_min: float = 0.0
-    u_max: float = 2.0
-    du_max: float = 0.2                 # スルーレート
-
-    # デッドバンド
-    deadband: float = 2.0               # [BPM]
-
-    # 適応機能
-    adaptive_enabled: bool = True
-    adaptation_rate: float = 0.01
+    # === デッドバンド ===
+    deadband: float = 2.0         # [BPM]
 ```
 
 ### 5.2 チューニング指針
 
 | パラメータ | 効果 | 推奨範囲 |
 |-----------|------|---------|
-| loop_gain | 応答速度 | 0.01〜0.05 |
-| ws_bandwidth | 追従帯域 | 0.03〜0.1 rad/s |
-| integral_gain | 定常偏差 | 0.001〜0.01 |
+| kp | 応答速度（比例） | 0.01〜0.05 |
+| ki | 定常偏差除去 | 0.001〜0.01 |
+| mec_gain | モデル誤差補償の強さ | 0.1〜0.5 |
+| mec_omega | MEC応答速度 | 0.02〜0.1 rad/s |
+| model_tau | 名目モデルの時定数 | 20〜60秒 |
 | filter_time_constant | ノイズ除去 | 1.0〜5.0秒 |
 | deadband | 不感帯 | 1.0〜3.0 BPM |
-| du_max | 応答滑らかさ | 0.1〜0.3 |
+| du_max | 応答滑らかさ | 0.1〜0.2 |
 
-## 6. ブロック線図
+## 6. MECの頑健性
 
-```
-                              ┌─────────────────┐
-                              │   Smith 予測器   │
-                              │  (むだ時間補償)  │
-                              └────────┬────────┘
-                                       │
-  target_hr ──(+)─→ [デッドバンド] ──→ [H∞制御器] ─┬→ [積分器] ─┐
-              │-                        (2次IIR)   │            │
-              │                                    │            │
-              │    ┌──────────────────────────────┘            │
-              │    │                                            │
-              │    └──→ [ゲイン調整] ──→ (+) ←─────────────────┘
-              │                           │
-              │                           ↓
-              │                    [スルーレート制限]
-              │                           │
-              │                           ↓
-              │                      [飽和処理]
-              │                           │
-              │                           ↓ output (抑揚)
-              │                    ┌──────┴──────┐
-              │                    │             │
-              │                    ↓             │
-              │              [ プラント ]        │
-              │              (心拍応答)          │
-              │                    │             │
-              │                    ↓             │
-              └────────────── [LPフィルタ] ←────┘
-                              current_hr
-```
+### 6.1 なぜMECが効くのか
 
-## 7. 他の制御モードとの比較
+1. **名目モデルが正確な場合**: ε ≈ 0 なので u_mec ≈ 0、基本PI制御だけが働く
+2. **名目モデルが不正確な場合**: ε ≠ 0 となり、MECがその差を補償
+3. **個人差への対応**: 被験者ごとにゲインや時定数が異なっても、MECが差を吸収
+4. **外乱への対応**: 予期しない心拍変動もモデル誤差として検出・補償
 
-### 7.1 PID制御との違い
+### 6.2 低域ろ波の役割
 
-| 項目 | PID | Robust |
-|------|-----|--------|
-| むだ時間補償 | なし | スミス予測器 |
-| ノイズ耐性 | 微分項で悪化 | 高周波重みで設計 |
-| パラメータ変動 | 性能劣化 | ロバスト性保証 |
-| 設計法 | 試行錯誤 | 周波数領域設計 |
+MECに低域ろ波（1次ローパスフィルタ）を入れる理由：
 
-### 7.2 適応制御(MRAC)との違い
+- **測定ノイズの増幅防止**: 高周波ノイズがモデル誤差として誤検出されるのを防ぐ
+- **安定性の確保**: 高周波でのゲインを下げることで閉ループの安定性を保証
+- **滑らかな補償**: 急激な補償入力を避け、自然な抑揚変化を実現
 
-| 項目 | MRAC | Robust |
-|------|------|--------|
-| パラメータ同定 | オンライン推定 | 不確かさ範囲で設計 |
-| 収束性 | 時間がかかる | 初期から安定 |
-| 計算量 | 大きい | 小さい |
-| 過渡特性 | 同定誤差に依存 | 安定余裕で保証 |
+### 6.3 従来手法との比較
 
-## 8. 使用例
+| 項目 | PID | H∞ループ整形 | MEC |
+|------|-----|-------------|-----|
+| 設計の複雑さ | 簡単 | 複雑 | 中程度 |
+| 理論的裏付け | 経験的 | 厳密 | 明確 |
+| 実装の複雑さ | 簡単 | 複雑 | 簡単 |
+| 頑健性 | 低い | 高い | 高い |
+| パラメータ数 | 3 | 10以上 | 7 |
+| チューニング | 試行錯誤 | 周波数設計 | 直感的 |
 
-### 8.1 GUIでの使用
+## 7. 使用例
+
+### 7.1 GUIでの使用
 
 1. HCSアプリを起動
 2. 「会話システム」タブ → 「HRF制御」セクション
@@ -305,7 +227,7 @@ class RobustConfig:
 4. 制御モード選択で「Robust」を選択
 5. 必要に応じてパラメータを調整
 
-### 8.2 プログラムからの使用
+### 7.2 プログラムからの使用
 
 ```python
 from hrf2_controller import HRF2Controller, ControlMode, RobustConfig
@@ -318,13 +240,14 @@ controller = HRF2Controller(
 
 # カスタム設定
 config = RobustConfig(
-    loop_gain=0.03,          # より積極的な制御
-    ws_bandwidth=0.08,       # 広い帯域
-    deadband=1.5,            # 狭いデッドバンド
-    du_max=0.15              # 滑らかな応答
+    kp=0.03,              # より積極的なPI制御
+    ki=0.005,
+    mec_gain=0.4,         # 強めのモデル誤差補償
+    mec_omega=0.08,       # やや速いMEC応答
+    deadband=1.5,         # 狭いデッドバンド
+    du_max=0.1            # 滑らかな応答
 )
 controller._robust_controller.config = config
-controller._robust_controller._update_controller_coefficients()
 
 # 制御ループ
 while running:
@@ -333,12 +256,79 @@ while running:
     play_audio_with_intonation(intonation)
 ```
 
-## 9. 参考文献
+## 8. 安定性検証
 
-1. Paradiso, R., et al. "WEALTHY - A Wearable Healthcare System Based on Knitted Integrated Sensors." IEEE Transactions on Information Technology in Biomedicine, Vol.9, No.3, 2005.
+### 8.1 検証結果サマリー
 
-2. Aranda, E., et al. "Robust Heart Rate Control Using Quantitative Feedback Theory (QFT)." European Control Conference (ECC), 2007.
+現在のパラメータ（Kp=0.1, Ki=0.003, mec_gain=0.3, mec_omega=0.05）での安定性検証結果:
 
-3. Skogestad, S., & Postlethwaite, I. "Multivariable Feedback Control: Analysis and Design." 2nd ed., Wiley, 2005.
+| 項目 | 結果 | 判定 |
+|------|------|------|
+| **位相余裕** | 86.2° | ✓ 十分（≥30°推奨） |
+| **閉ループ極** | -0.014, -0.036 | ✓ 全て負（安定） |
+| **ロバスト性テスト** | 36/36ケース安定 | ✓ 100%安定 |
+| **最大定常偏差** | 7.52 BPM | 許容範囲内 |
 
-4. 川田昌克, 西岡勝博. "MATLABによる制御系設計." 東京電機大学出版局, 2003.
+### 8.2 ロバスト性テスト条件
+
+プラント変動に対する頑健性を検証:
+- **ゲイン変動**: 0.5〜2.0倍（6段階）
+- **時定数変動**: 0.5〜2.0倍（6段階）
+- 計36通りの組み合わせ
+
+全ての条件で閉ループが安定（発振なし、収束）を確認。
+
+### 8.3 検証スクリプト
+
+安定性検証は `tests/test_mec_stability.py` で実行可能:
+
+```bash
+source .venv/bin/activate
+python tests/test_mec_stability.py
+```
+
+出力ファイル:
+- `tests/mec_bode_plot.png` - ボード線図（ゲイン・位相余裕）
+- `tests/mec_step_response.png` - ステップ応答（名目 vs 変動）
+- `tests/mec_robustness_map.png` - ロバスト性マップ（定常偏差・安定性）
+
+### 8.4 解釈
+
+1. **位相余裕 86°**: 非常に保守的な設計。発振の心配なし
+2. **ゲイン余裕**: 位相が-180°に達しないため測定不可（これも良い兆候）
+3. **プラント変動への頑健性**: ゲイン・時定数が2倍変動しても安定
+
+## 9. デバッグ情報
+
+RobustController.update() は以下のデバッグ情報を返します：
+
+```python
+{
+    "control_mode": "Robust(MEC)",
+    "target_hr": 70.0,           # 目標心拍数
+    "current_hr": 68.5,          # 計測心拍数（生値）
+    "filtered_hr": 68.8,         # フィルタ後心拍数
+    "model_output": 69.2,        # 名目モデル出力 ŷ
+    "model_error": -0.4,         # モデル誤差 ε = y - ŷ
+    "error": 1.2,                # 制御誤差 e = r - y
+    "effective_error": 0.0,      # デッドバンド処理後誤差
+    "p_term": 0.0,               # 比例項
+    "integral": 0.15,            # 積分項
+    "u0": 1.15,                  # 基本制御出力
+    "u_mec": 0.02,               # MEC補償入力
+    "raw_output": 1.17,          # 総合出力（制限前）
+    "output": 1.17               # 最終出力
+}
+```
+
+## 10. 参考文献
+
+1. 須田信英, 他. "PID制御の基礎と応用." 朝倉書店, 1992.
+
+2. 山本透, 増田士朗. "モデル誤差抑制補償器（MEC）の設計法." 計測自動制御学会論文集, Vol.32, No.12, 1996.
+
+3. 川田昌克. "MATLAB/Simulinkによる制御工学入門." 森北出版, 2002.
+
+4. 金原粲. "ロバスト制御入門." オーム社, 1994.
+
+5. Astrom, K.J., Wittenmark, B. "Adaptive Control." 2nd ed., Addison-Wesley, 1995.

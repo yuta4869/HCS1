@@ -177,96 +177,78 @@ class GainScheduleConfig:
 @dataclass
 class RobustConfig:
     """
-    H∞ロバスト制御のパラメータ設定
+    頑健制御のパラメータ設定（MEC: モデル誤差抑制補償器）
 
-    混合感度問題に基づくロバスト制御:
-    ||[Ws*S; Wt*T]||∞ < γ
+    構成:
+    - 基本制御器 K0: PI制御で目標追従
+    - MEC: 名目モデルとの誤差を補償して頑健化
 
-    - S = 1/(1+PK): 感度関数（外乱抑制）
-    - T = PK/(1+PK): 相補感度関数（ロバスト安定性）
-    - Ws: 低周波重み（目標追従性能）
-    - Wt: 高周波重み（ノイズ抑制・ロバスト性）
+    ブロック図:
+        r ──> (+) ─ e ─> [PI制御器K0] ─ u0 ──┐
+               ▲                              │
+               │                              ▼
+               │                          (+) ─ u ──> [人体G] ──> y
+               │                              ▲
+               │                              │ u_mec
+               │                          [MEC: Cε]
+               │                              ▲
+               │                              │ ε = y - ŷ
+               └─────── y ◄──── [名目モデルĜ] ◄─ u
 
-    参考文献:
-    - Paradiso et al., IEEE Trans. Biomed. Eng., Vol.60, No.11, 2013
-    - Aranda et al., ECC 2007 (QFT approach)
+    MEC（モデル誤差抑制補償器）:
+    - ε = y - ŷ （実出力と名目モデル出力の差）
+    - u_mec = -Cε(s) * ε （誤差を高利得+低域ろ波で返す）
+    - Cε(s) = k / (1 + s/ωc) （1次ローパスフィルタ付き利得）
+
+    名目モデル Ĝ(s):
+    - 一次遅れ + むだ時間: Ĝ(s) = K * exp(-Ls) / (τs + 1)
+    - 完璧でなくてよい（MECが誤差を補償するため）
     """
-    # 公称プラントパラメータ（1次遅れ＋むだ時間モデル）
-    # P0(s) = K * exp(-L*s) / (T*s + 1)
-    plant_gain: float = 1.5       # K: 定常ゲイン（抑揚→心拍数の影響度）
-    plant_time_constant: float = 30.0  # T: 時定数 [秒]（心拍応答の遅れ）
-    plant_dead_time: float = 5.0  # L: むだ時間 [秒]
+    # === 基本PI制御器パラメータ ===
+    kp: float = 0.02              # 比例ゲイン
+    ki: float = 0.003             # 積分ゲイン
+    integral_max: float = 0.5     # 積分項のアンチワインドアップ
 
-    # 不確かさパラメータ（乗法的不確かさ）
-    # 真のプラント P = P0 * (1 + Δ*Wm), |Δ|≤1
-    uncertainty_low_freq: float = 0.3   # 低周波での不確かさ（個人差など）
-    uncertainty_high_freq: float = 1.5  # 高周波での不確かさ（ノイズ等）
-    uncertainty_crossover: float = 0.1  # 不確かさが増加し始める周波数 [rad/s]
+    # === 名目モデルパラメータ ===
+    # Ĝ(s) = model_gain / (model_tau * s + 1)
+    # むだ時間は離散実装でバッファで近似
+    model_gain: float = 5.0       # 名目モデルの定常ゲイン（抑揚1.0からの変化→HR変化）
+    model_tau: float = 30.0       # 名目モデルの時定数 [秒]
+    model_delay: float = 5.0      # 名目モデルのむだ時間 [秒]
 
-    # 感度重みWsパラメータ
-    # Ws(s) = (s/Ms + ωb) / (s + ωb*εs)
-    # - 低周波ゲイン: 1/εs（追従誤差の上限）
-    # - 高周波ゲイン: Ms（感度のピーク制限）
-    # - 帯域幅: ωb
-    ws_bandwidth: float = 0.05    # ωb: 帯域幅 [rad/s]（心拍応答に合わせて低め）
-    ws_low_freq_gain: float = 100.0  # 1/εs: 定常誤差抑制（大きいほど追従性向上）
-    ws_peak: float = 2.0          # Ms: 感度ピーク制限
+    # === MEC（モデル誤差抑制補償器）パラメータ ===
+    # Cε(s) = mec_gain / (1 + s/mec_omega)
+    mec_gain: float = 0.3         # MEC利得 k（大きいほど誤差補償が強い）
+    mec_omega: float = 0.05       # MEC低域ろ波のカットオフ周波数 [rad/s]（低めから始める）
 
-    # 相補感度重みWtパラメータ
-    # Wt(s) = (s + ωt/Mt) / (εt*s + ωt)
-    # - 低周波ゲイン: 1/Mt
-    # - 高周波ゲイン: 1/εt（ロバスト安定マージン）
-    # - 帯域幅: ωt
-    wt_bandwidth: float = 0.3     # ωt: 帯域幅 [rad/s]
-    wt_high_freq_gain: float = 1.2  # 1/εt: 高周波でのロバスト性
-    wt_peak: float = 1.5          # Mt: 相補感度ピーク制限
+    # === 計測ノイズ抑制 ===
+    filter_time_constant: float = 2.0  # 出力yのローパスフィルタ時定数 [秒]
 
-    # 制御器パラメータ
-    controller_order: int = 2     # 制御器の次数（離散化後）
+    # === 出力制限 ===
+    du_max: float = 0.15          # 1ステップあたりの最大変化量（スルーレート制限）
 
-    # ループ整形パラメータ
-    loop_gain: float = 0.02       # 開ループゲイン調整係数
-    phase_margin_target: float = 45.0  # 目標位相余裕 [度]
-    gain_margin_target: float = 6.0    # 目標ゲイン余裕 [dB]
-
-    # 積分器パラメータ（定常偏差除去用）
-    integral_gain: float = 0.003  # 積分ゲイン
-    integral_max: float = 15.0    # 積分項のアンチワインドアップ
-
-    # フィルタパラメータ（ノイズ抑制・むだ時間補償）
-    filter_time_constant: float = 2.0  # ローパスフィルタ時定数 [秒]
-    smith_predictor_enabled: bool = True  # スミス予測器（むだ時間補償）
-
-    # 出力制限
-    u_min: float = 0.0   # 抑揚の最小値
-    u_max: float = 2.0   # 抑揚の最大値
-    du_max: float = 0.2  # 1ステップあたりの最大変化量（スルーレート制限）
-
-    # デッドバンド
-    deadband: float = 2.0  # BPM（目標値付近で制御を緩める）
-
-    # 適応機能（オプション）
-    adaptive_enabled: bool = True  # オンライン同定を有効化
-    adaptation_rate: float = 0.01  # 適応速度
+    # === デッドバンド ===
+    deadband: float = 2.0         # BPM（目標値付近で制御を緩める）
 
 
 class RobustController:
     """
-    H∞ロバスト制御コントローラー
+    頑健制御コントローラー（MEC: モデル誤差抑制補償器）
 
-    混合感度問題に基づく設計:
-    - 低周波: 高い追従性能（目標心拍数への収束）
-    - 高周波: ロバスト安定性（ノイズ・個人差への耐性）
+    構成:
+    1. 基本制御器 K0: PI制御で目標追従
+    2. 名目モデル Ĝ: 一次遅れ + むだ時間で人体応答を近似
+    3. MEC Cε: モデル誤差 ε = y - ŷ を補償
 
-    特徴:
-    1. むだ時間補償（スミス予測器）
-    2. アンチワインドアップ付き積分器
-    3. オンラインゲイン適応（オプション）
-    4. スルーレート制限（急激な変化を抑制）
+    動作原理:
+    - u = u0 + u_mec
+    - u0 = Kp*e + Ki*∫e （基本PI制御）
+    - ε = y - ŷ （モデル誤差 = 実出力 - 名目モデル出力）
+    - u_mec = -Cε(s)*ε （誤差を低域ろ波付き利得で返す）
 
-    実装:
-    離散時間のH∞制御器を2次IIRフィルタとして実装。
-    連続時間設計を双一次変換（Tustin変換）で離散化。
+    頑健性:
+    - 名目モデルと実際の人体の差（個人差、日内変動）をMECが補償
+    - 低域ろ波により測定ノイズを増幅しない
     """
 
     def __init__(self, config: Optional[RobustConfig] = None):
@@ -277,116 +259,35 @@ class RobustController:
 
         # 時間管理
         self._last_time: Optional[float] = None
-        self._sample_time: float = 1.0  # サンプリング時間 [秒]
 
-        # 制御器の内部状態（2次IIRフィルタ）
-        self._x1: float = 0.0  # 状態変数1
-        self._x2: float = 0.0  # 状態変数2
-
-        # 積分器状態
+        # === 基本PI制御器の状態 ===
         self._integral: float = 0.0
 
-        # フィルタ状態（ローパスフィルタ）
-        self._filtered_error: float = 0.0
+        # === 計測フィルタ状態 ===
         self._filtered_hr: float = 70.0
 
-        # スミス予測器の履歴
-        self._prediction_buffer: List[float] = []
-        self._delay_steps: int = int(self.config.plant_dead_time / self._sample_time)
+        # === 名目モデルの状態 ===
+        # 一次遅れ系: τ * d(ŷ)/dt + ŷ = K * u_delayed
+        self._model_output: float = 70.0  # ŷ: 名目モデル出力
+        self._input_buffer: List[Tuple[float, float]] = []  # むだ時間用バッファ (time, u)
 
-        # 出力履歴（スルーレート制限用）
+        # === MEC（モデル誤差抑制補償器）の状態 ===
+        # Cε(s) = k / (1 + s/ω) を離散化
+        self._mec_filtered_error: float = 0.0  # ローパスフィルタ後のε
+
+        # === 出力履歴 ===
         self._last_output: float = 1.0
-
-        # 適応パラメータ
-        self._adapted_gain: float = self.config.loop_gain
-
-        # 履歴（解析用）
-        self._hr_history: List[float] = []
-        self._error_history: List[float] = []
-        self._max_history: int = 100
-
-        # 制御器係数（離散時間）
-        self._update_controller_coefficients()
-
-    def _update_controller_coefficients(self) -> None:
-        """
-        H∞制御器の離散時間係数を計算
-
-        連続時間の2次制御器を双一次変換で離散化:
-        K(s) = (b2*s² + b1*s + b0) / (a2*s² + a1*s + a0)
-
-        離散化後:
-        K(z) = (B0 + B1*z⁻¹ + B2*z⁻²) / (1 + A1*z⁻¹ + A2*z⁻²)
-        """
-        T = self._sample_time
-        cfg = self.config
-
-        # H∞ループ整形に基づく制御器パラメータ
-        # 開ループ伝達関数 L(s) = K(s)*P(s) の形状を設計
-
-        # 位相余裕・ゲイン余裕を満たす制御器を近似設計
-        # PI制御器ベースにローパスフィルタを追加した構造:
-        # K(s) = Kp * (1 + Ki/s) * 1/(Tf*s + 1)
-
-        # プラントの帯域幅に合わせたクロスオーバー周波数
-        omega_c = cfg.ws_bandwidth * 2  # クロスオーバー周波数
-
-        # 位相余裕から比例ゲインを計算
-        # φm = 180° - arg(L(jωc)) = 180° - arg(K(jωc)) - arg(P(jωc))
-        # プラントの位相遅れ（1次遅れ＋むだ時間）を考慮
-        plant_phase = -math.atan(omega_c * cfg.plant_time_constant) - omega_c * cfg.plant_dead_time
-        target_phase_margin = math.radians(cfg.phase_margin_target)
-
-        # 必要な制御器位相進み
-        controller_phase_lead = target_phase_margin + math.pi + plant_phase
-
-        # PI制御器 + フィルタの係数
-        Kp = cfg.loop_gain * cfg.plant_gain
-        Ti = 1.0 / (cfg.integral_gain / Kp) if cfg.integral_gain > 0 else 1000.0
-        Tf = cfg.filter_time_constant
-
-        # 連続時間係数
-        # K(s) = Kp * (Ti*s + 1) / (Ti*s) * 1/(Tf*s + 1)
-        #      = Kp * (Ti*s + 1) / (Ti*Tf*s² + Ti*s)
-        # 分子: Kp*Ti*s + Kp
-        # 分母: Ti*Tf*s² + Ti*s + 0 (厳密には不安定なので修正)
-
-        # 安定な2次制御器として再設計
-        # K(s) = Kp * (1 + 1/(Ti*s)) / (1 + Tf*s)
-        # 離散化には双一次変換 s = (2/T)*(z-1)/(z+1) を使用
-
-        # 簡略化: 状態空間形式での離散化
-        # PI制御器の離散化
-        alpha = T / Ti if Ti > 0 else 0
-        beta = Tf / (Tf + T) if Tf > 0 else 0
-
-        # 2次IIRフィルタとして実装
-        # y[k] = B0*e[k] + B1*e[k-1] + B2*e[k-2] - A1*y[k-1] - A2*y[k-2]
-        self._B0 = Kp * (1 + alpha/2)
-        self._B1 = Kp * alpha
-        self._B2 = Kp * (alpha/2 - 1) * 0.1  # 微分項（減衰）
-        self._A1 = -(2 * beta - 1)
-        self._A2 = beta * 0.5
-
-        # 係数の正規化（安定性確保）
-        self._B0 = max(-1.0, min(1.0, self._B0))
-        self._B1 = max(-1.0, min(1.0, self._B1))
-        self._B2 = max(-0.5, min(0.5, self._B2))
 
     def reset(self) -> None:
         """制御状態をリセット"""
-        self._x1 = 0.0
-        self._x2 = 0.0
         self._integral = 0.0
-        self._filtered_error = 0.0
         self._filtered_hr = self._target_hr
-        self._prediction_buffer.clear()
+        self._model_output = self._target_hr
+        self._input_buffer.clear()
+        self._mec_filtered_error = 0.0
         self._last_output = 1.0
-        self._adapted_gain = self.config.loop_gain
-        self._hr_history.clear()
-        self._error_history.clear()
         self._last_time = None
-        print("Robust Controller reset")
+        print("Robust Controller (MEC) reset")
 
     def set_target_hr(self, target_hr: float) -> None:
         """目標心拍数を設定"""
@@ -397,7 +298,7 @@ class RobustController:
 
     def update(self, current_hr: float, min_output: float, max_output: float) -> Tuple[float, dict]:
         """
-        H∞ロバスト制御による出力計算
+        頑健制御（MEC）による出力計算
 
         Args:
             current_hr: 現在の心拍数 (BPM)
@@ -410,87 +311,74 @@ class RobustController:
         current_time = time.time()
         cfg = self.config
 
-        # サンプリング時間の更新
+        # サンプリング時間の計算
+        dt = 1.0
         if self._last_time is not None:
             dt = current_time - self._last_time
-            if 0 < dt < 10.0:
-                self._sample_time = dt
+            if dt <= 0 or dt > 10.0:
+                dt = 1.0
 
-        # 心拍数のローパスフィルタリング（ノイズ除去）
-        alpha_lpf = self._sample_time / (cfg.filter_time_constant + self._sample_time)
-        self._filtered_hr += alpha_lpf * (current_hr - self._filtered_hr)
+        # === 計測値のローパスフィルタ（ノイズ抑制） ===
+        alpha_y = dt / (cfg.filter_time_constant + dt)
+        self._filtered_hr += alpha_y * (current_hr - self._filtered_hr)
 
-        # 誤差計算
+        # === 名目モデルの更新 ===
+        # むだ時間バッファから遅延入力を取得
+        self._input_buffer.append((current_time, self._last_output))
+        delayed_input = 1.0  # デフォルト（ベースライン）
+        cutoff_time = current_time - cfg.model_delay
+        while self._input_buffer and self._input_buffer[0][0] < cutoff_time:
+            delayed_input = self._input_buffer.pop(0)[1]
+
+        # 一次遅れ系の更新: τ * d(ŷ)/dt + ŷ = K * (u - 1) + baseline
+        # 離散化: ŷ[k+1] = ŷ[k] + (dt/τ) * (K*(u-1) + baseline - ŷ[k])
+        baseline_hr = self._target_hr  # ベースラインを目標HRとする
+        model_target = baseline_hr + cfg.model_gain * (delayed_input - 1.0)
+        alpha_m = dt / (cfg.model_tau + dt)
+        self._model_output += alpha_m * (model_target - self._model_output)
+
+        # === モデル誤差の計算 ===
+        # ε = y - ŷ （実出力 - 名目モデル出力）
+        model_error = self._filtered_hr - self._model_output
+
+        # === MEC: モデル誤差抑制補償 ===
+        # Cε(s) = k / (1 + s/ω) を離散化
+        # y[k+1] = y[k] + (dt*ω) * (k*ε - y[k])
+        alpha_mec = dt * cfg.mec_omega
+        alpha_mec = min(alpha_mec, 1.0)  # 安定性のため
+        self._mec_filtered_error += alpha_mec * (cfg.mec_gain * model_error - self._mec_filtered_error)
+
+        # MEC補償入力: u_mec = -Cε(s)*ε
+        u_mec = -self._mec_filtered_error
+
+        # === 基本PI制御器 ===
         error = self._target_hr - self._filtered_hr
 
-        # 履歴に追加
-        self._hr_history.append(current_hr)
-        self._error_history.append(error)
-        if len(self._hr_history) > self._max_history:
-            self._hr_history.pop(0)
-            self._error_history.pop(0)
-
         # デッドバンド処理
-        effective_error = 0.0 if abs(error) < cfg.deadband else error
+        if abs(error) < cfg.deadband:
+            effective_error = 0.0
+        else:
+            effective_error = error
 
-        # フィルタ済み誤差の更新（微分項用）
-        self._filtered_error += alpha_lpf * (effective_error - self._filtered_error)
+        # 比例項
+        p_term = cfg.kp * effective_error
 
-        # === スミス予測器（むだ時間補償） ===
-        if cfg.smith_predictor_enabled:
-            # 予測バッファの更新
-            self._prediction_buffer.append(self._last_output)
-            if len(self._prediction_buffer) > self._delay_steps + 1:
-                self._prediction_buffer.pop(0)
-
-            # むだ時間分遅延した入力の効果を予測
-            if len(self._prediction_buffer) > self._delay_steps:
-                delayed_output = self._prediction_buffer[0]
-                # 予測された心拍数変化
-                predicted_effect = cfg.plant_gain * (delayed_output - 1.0)
-                # 補正された誤差
-                effective_error = effective_error + predicted_effect * 0.5
-
-        # === H∞制御器（2次IIRフィルタ） ===
-        # y = B0*e + x1
-        # x1_new = B1*e + x2 - A1*y
-        # x2_new = B2*e - A2*y
-        controller_output = self._B0 * effective_error + self._x1
-        x1_new = self._B1 * effective_error + self._x2 - self._A1 * controller_output
-        x2_new = self._B2 * effective_error - self._A2 * controller_output
-        self._x1 = x1_new
-        self._x2 = x2_new
-
-        # === 積分器（定常偏差除去） ===
-        if self._sample_time > 0:
-            self._integral += cfg.integral_gain * effective_error * self._sample_time
-            # アンチワインドアップ
+        # 積分項（アンチワインドアップ付き）
+        if dt > 0:
+            self._integral += cfg.ki * effective_error * dt
             self._integral = max(-cfg.integral_max, min(cfg.integral_max, self._integral))
 
-        # === 適応ゲイン（オプション） ===
-        if cfg.adaptive_enabled and len(self._error_history) >= 10:
-            # 誤差の変化率に基づいてゲインを調整
-            recent_errors = self._error_history[-10:]
-            error_trend = abs(recent_errors[-1]) - abs(recent_errors[0])
-
-            # 誤差が減少していない場合はゲインを上げる
-            if error_trend > 0 and abs(recent_errors[-1]) > cfg.deadband:
-                self._adapted_gain *= (1 + cfg.adaptation_rate)
-            elif error_trend < 0:
-                self._adapted_gain *= (1 - cfg.adaptation_rate * 0.5)
-
-            # ゲインの範囲制限
-            self._adapted_gain = max(cfg.loop_gain * 0.5, min(cfg.loop_gain * 2.0, self._adapted_gain))
+        # 基本制御出力
+        u0 = 1.0 + p_term + self._integral
 
         # === 総合出力 ===
-        # ベース出力 (1.0) + 制御器出力 + 積分器出力
-        gain_factor = self._adapted_gain / cfg.loop_gain if cfg.adaptive_enabled else 1.0
-        raw_output = 1.0 + gain_factor * controller_output + self._integral
+        # u = u0 + u_mec
+        raw_output = u0 + u_mec
 
         # === スルーレート制限 ===
-        delta_output = raw_output - self._last_output
-        if abs(delta_output) > cfg.du_max:
-            raw_output = self._last_output + cfg.du_max * (1 if delta_output > 0 else -1)
+        delta = raw_output - self._last_output
+        if abs(delta) > cfg.du_max:
+            raw_output = self._last_output + cfg.du_max * (1.0 if delta > 0 else -1.0)
 
         # === 出力範囲制限 ===
         output = max(min_output, min(max_output, raw_output))
@@ -500,58 +388,43 @@ class RobustController:
         self._last_output = output
 
         debug_info = {
-            "control_mode": "Robust",
+            "control_mode": "Robust(MEC)",
             "target_hr": self._target_hr,
             "current_hr": current_hr,
             "filtered_hr": self._filtered_hr,
+            "model_output": self._model_output,
+            "model_error": model_error,
             "error": error,
             "effective_error": effective_error,
-            "controller_output": controller_output,
+            "p_term": p_term,
             "integral": self._integral,
-            "adapted_gain": self._adapted_gain,
+            "u0": u0,
+            "u_mec": u_mec,
             "raw_output": raw_output,
-            "output": output,
-            "x1": self._x1,
-            "x2": self._x2
+            "output": output
         }
 
         return output, debug_info
 
-    def get_adapted_gain(self) -> float:
-        """現在の適応ゲインを取得"""
-        return self._adapted_gain
+    def set_kp(self, kp: float) -> None:
+        """比例ゲインを設定"""
+        self.config.kp = max(0.001, min(0.1, kp))
+        print(f"Robust Kp set to {self.config.kp}")
 
-    def set_loop_gain(self, gain: float) -> None:
-        """ループゲインを設定"""
-        self.config.loop_gain = max(0.001, min(0.1, gain))
-        self._adapted_gain = self.config.loop_gain
-        self._update_controller_coefficients()
-        print(f"Robust loop gain set to {self.config.loop_gain}")
-
-    def set_integral_gain(self, gain: float) -> None:
+    def set_ki(self, ki: float) -> None:
         """積分ゲインを設定"""
-        self.config.integral_gain = max(0.0, min(0.01, gain))
-        self._update_controller_coefficients()
-        print(f"Robust integral gain set to {self.config.integral_gain}")
+        self.config.ki = max(0.0, min(0.01, ki))
+        print(f"Robust Ki set to {self.config.ki}")
 
-    def set_filter_time_constant(self, tau: float) -> None:
-        """フィルタ時定数を設定"""
-        self.config.filter_time_constant = max(0.5, min(10.0, tau))
-        print(f"Robust filter time constant set to {self.config.filter_time_constant}")
+    def set_mec_gain(self, gain: float) -> None:
+        """MEC利得を設定"""
+        self.config.mec_gain = max(0.0, min(1.0, gain))
+        print(f"MEC gain set to {self.config.mec_gain}")
 
-    def enable_smith_predictor(self, enabled: bool) -> None:
-        """スミス予測器の有効/無効を設定"""
-        self.config.smith_predictor_enabled = enabled
-        if not enabled:
-            self._prediction_buffer.clear()
-        print(f"Smith predictor {'enabled' if enabled else 'disabled'}")
-
-    def enable_adaptation(self, enabled: bool) -> None:
-        """適応機能の有効/無効を設定"""
-        self.config.adaptive_enabled = enabled
-        if not enabled:
-            self._adapted_gain = self.config.loop_gain
-        print(f"Adaptive gain {'enabled' if enabled else 'disabled'}")
+    def set_mec_omega(self, omega: float) -> None:
+        """MECカットオフ周波数を設定"""
+        self.config.mec_omega = max(0.01, min(0.5, omega))
+        print(f"MEC omega set to {self.config.mec_omega}")
 
 
 # === コメントアウト: AdaptiveMPCController（ロバスト制御に置き換え） ===
