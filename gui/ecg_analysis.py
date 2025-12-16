@@ -67,6 +67,12 @@ CONDITION_COLORS = {
 def bandpass_filter(signal_data, fs):
     """バンドパスフィルタ (0.5Hz - 50Hz)"""
     from scipy.signal import butter, filtfilt
+    # 5次バターワースフィルタには最低 3 * (5 * 2 + 1) = 33 サンプル必要
+    min_samples = 34
+    if len(signal_data) < min_samples:
+        raise ValueError(
+            f"データが短すぎます: {len(signal_data)}サンプル（最低{min_samples}サンプル≒{min_samples/fs:.2f}秒必要）"
+        )
     lowcut = 0.5
     highcut = 50
     nyq = 0.5 * fs
