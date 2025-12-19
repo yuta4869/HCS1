@@ -535,6 +535,28 @@ class H10Monitor:
         """Helper function to convert bytes to unsigned long."""
         return int.from_bytes(data[offset : offset + length], byteorder="little", signed=False)
 
+    async def _bluez_disconnect_device(self, address: str) -> None:
+        """Linux BlueZ: bluetoothctlでデバイスを強制切断"""
+        import subprocess
+        try:
+            # bluetoothctlでdisconnect
+            result = subprocess.run(
+                ["bluetoothctl", "disconnect", address],
+                capture_output=True, text=True, timeout=5
+            )
+            print(f"bluetoothctl disconnect: {result.stdout.strip()}")
+            await asyncio.sleep(1.0)
+
+            # デバイスをremoveして再ペアリングを強制
+            result = subprocess.run(
+                ["bluetoothctl", "remove", address],
+                capture_output=True, text=True, timeout=5
+            )
+            print(f"bluetoothctl remove: {result.stdout.strip()}")
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            print(f"bluetoothctl cleanup error (ignored): {e}")
+
     async def connect_to_device(self) -> bool:
         """Connects to the Polar H10 sensor."""
         import platform
@@ -551,13 +573,13 @@ class H10Monitor:
                 print(f"Cleanup disconnect error (ignored): {e}")
             self.client = None
             if is_linux:
-                await asyncio.sleep(1.0)  # BlueZが状態をリセットするまで待機
+                await asyncio.sleep(1.0)
 
         for attempt in range(max_retries):
             try:
                 if attempt > 0:
                     print(f"Retry attempt {attempt + 1}/{max_retries}...")
-                    await asyncio.sleep(2.0)  # リトライ前に待機
+                    await asyncio.sleep(2.0)
 
                 print("Searching for Polar H10...")
                 devices = await BleakScanner.discover(timeout=15.0, return_adv=False)
@@ -566,6 +588,11 @@ class H10Monitor:
                 if not self.device:
                     print(f"{config.POLAR_H10_NAME} not found.")
                     return False
+
+                # Linux: 接続前にBlueZレベルで既存接続をクリア
+                if is_linux and attempt == 0:
+                    print("Clearing BlueZ connection state...")
+                    await self._bluez_disconnect_device(self.device.address)
 
                 print(f"Attempting to connect to H10: {self.device.address}")
                 self.client = BleakClient(self.device.address, timeout=20.0)
@@ -604,16 +631,18 @@ class H10Monitor:
                 error_str = str(e)
                 print(f"Error during H10 device connection: {e}")
 
-                # BlueZ InProgress エラーの場合はリトライ
+                # BlueZ InProgress エラーの場合はbluetoothctlでクリア
                 if is_linux and "InProgress" in error_str:
-                    print("BlueZ 'InProgress' error detected. Waiting before retry...")
+                    print("BlueZ 'InProgress' error detected. Forcing disconnect via bluetoothctl...")
+                    if self.device:
+                        await self._bluez_disconnect_device(self.device.address)
                     if self.client:
                         try:
                             await self.client.disconnect()
                         except Exception:
                             pass
                     self.client = None
-                    await asyncio.sleep(3.0)  # BlueZが状態をリセットするまで待機
+                    await asyncio.sleep(2.0)
                     continue
 
                 if self.client and self.client.is_connected:
