@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 import re
-from typing import Optional, Any, List, Dict
+from typing import Optional, Any, List, Dict, Awaitable
 from collections import defaultdict
 from pathlib import Path
 
@@ -164,6 +164,12 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         self.async_loop.run_forever()
         if not self._closing:
             self.after(50, self.poll_asyncio_loop)
+
+    def run_coroutine(self, coro: Awaitable[Any]):
+        """Schedule coroutine on the application's asyncio loop."""
+        if self._closing:
+            raise RuntimeError("Application is closing; cannot schedule coroutine.")
+        return asyncio.ensure_future(coro, loop=self.async_loop)
 
     def setup_ui(self) -> None:
         self.title(f"心拍数連動AI音声アシスタント (v{datetime.datetime.now().strftime('%Y.%m.%d')})")
@@ -1874,10 +1880,18 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
 
         is_any_connected = self.hr_monitor.is_connected or self.h10_monitor.is_connected
 
-        if is_any_connected:
-            self.async_loop.create_task(self._disconnect_devices_async())
-        else:
-            self.async_loop.create_task(self._connect_devices_async())
+        try:
+            if is_any_connected:
+                future = self.run_coroutine(self._disconnect_devices_async())
+            else:
+                future = self.run_coroutine(self._connect_devices_async())
+            # 例外はバックグラウンドで発生するためログに出す
+            future.add_done_callback(
+                lambda fut: fut.exception() and print(f"[AsyncLoop] Sensor task error: {fut.exception()}")
+            )
+        except RuntimeError as e:
+            self.set_status(f"センサー制御のスケジュールに失敗しました: {e}", "red")
+            print(f"[AsyncLoop] Failed to schedule sensor task: {e}")
 
     async def _connect_devices_async(self) -> None:
         import platform

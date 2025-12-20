@@ -43,8 +43,8 @@ class VideoRecorder:
                  fps: float = 30.0,
                  resolution: Optional[tuple] = None,
                  codec: str = "mp4v",
-                 audio_sample_rate: int = 48000,
-                 audio_channels: int = 1,
+                 audio_sample_rate: Optional[int] = None,
+                 audio_channels: Optional[int] = None,
                  record_audio: bool = True,
                  audio_device_index: Optional[int] = None,
                  auto_detect_audio_device: bool = True):
@@ -67,9 +67,21 @@ class VideoRecorder:
         self.fps = fps
         self.resolution = resolution
         self.codec = codec
-        self.audio_sample_rate = audio_sample_rate
-        self.audio_channels = audio_channels
+        default_sample_rate = getattr(config, "VIDEO_AUDIO_SAMPLE_RATE", 16000)
+        default_channels = getattr(config, "VIDEO_AUDIO_CHANNELS", 1)
+        self.audio_sample_rate = audio_sample_rate or default_sample_rate
+        self.audio_channels = audio_channels or default_channels
         self.record_audio = record_audio
+        self.audio_blocksize = getattr(
+            config,
+            "VIDEO_AUDIO_CHUNK_SIZE",
+            getattr(config, "AUDIO_CHUNK_SIZE", 2048)
+        )
+        self.audio_latency = getattr(
+            config,
+            "VIDEO_AUDIO_LATENCY",
+            getattr(config, "AUDIO_LATENCY", "high")
+        )
 
         # 音声デバイスの決定
         if auto_detect_audio_device and audio_device_index is None:
@@ -90,6 +102,8 @@ class VideoRecorder:
         self._frame_count = 0
         self._start_time: Optional[datetime] = None
         self._audio_data = []
+        self._last_audio_status_log = 0.0
+        self._audio_overflow_notified = False
 
     @property
     def is_recording(self) -> bool:
@@ -153,7 +167,13 @@ class VideoRecorder:
     def _audio_callback(self, indata, frames, time_info, status):
         """音声録音コールバック"""
         if status:
-            print(f"[VideoRecorder] 音声録音警告: {status}")
+            now = time.time()
+            if now - self._last_audio_status_log > 5.0:
+                print(f"[VideoRecorder] 音声録音警告: {status}")
+                if "overflow" in str(status).lower() and not self._audio_overflow_notified:
+                    print("[VideoRecorder]  -> config.py の VIDEO_AUDIO_SAMPLE_RATE / VIDEO_AUDIO_CHUNK_SIZE を下げてください。")
+                    self._audio_overflow_notified = True
+                self._last_audio_status_log = now
         self._audio_data.append(indata.copy())
 
     def _recording_loop(self) -> None:
@@ -322,6 +342,8 @@ class VideoRecorder:
         self._frame_count = 0
         self._start_time = datetime.now()
         self._is_recording = True
+        self._last_audio_status_log = 0.0
+        self._audio_overflow_notified = False
 
         # 映像録画スレッド開始
         self._recording_thread = threading.Thread(
@@ -347,10 +369,13 @@ class VideoRecorder:
                     samplerate=self.audio_sample_rate,
                     channels=self.audio_channels,
                     device=self.audio_device_index,  # None=デフォルト、または指定デバイス
-                    callback=self._audio_callback
+                    callback=self._audio_callback,
+                    blocksize=self.audio_blocksize,
+                    latency=self.audio_latency
                 )
                 self._audio_stream.start()
-                print(f"[VideoRecorder] 音声録音開始 ({self.audio_sample_rate}Hz, {self.audio_channels}ch{device_info})")
+                print(f"[VideoRecorder] 音声録音開始 ({self.audio_sample_rate}Hz, {self.audio_channels}ch"
+                      f"{device_info}, blocksize={self.audio_blocksize}, latency={self.audio_latency})")
             except Exception as e:
                 print(f"[VideoRecorder] 警告: 音声録音の開始に失敗しました: {e}")
                 print(f"[VideoRecorder] 映像のみで録画を続行します")
