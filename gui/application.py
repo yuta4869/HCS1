@@ -1880,16 +1880,45 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             self.async_loop.create_task(self._connect_devices_async())
 
     async def _connect_devices_async(self) -> None:
+        import platform
+        is_linux = platform.system() == "Linux"
+
         self.connect_button.config(text="接続中...", state=tk.DISABLED)
-        
-        # Concurrently connect to both devices
-        results = await asyncio.gather(
-            self.hr_monitor.start_monitoring_async(),
-            self.h10_monitor.start_monitoring_async(),
-            return_exceptions=True
-        )
-        verity_success = isinstance(results[0], bool) and results[0]
-        h10_success = isinstance(results[1], bool) and results[1]
+
+        if is_linux:
+            # Linux: 順次接続（BLEスキャンの競合を回避）
+            print("Linux detected: connecting devices sequentially...")
+            verity_success = False
+            h10_success = False
+
+            try:
+                self.set_status("Verity Sense 接続中...", "orange")
+                verity_success = await self.hr_monitor.start_monitoring_async()
+            except Exception as e:
+                print(f"Verity Sense connection error: {e}")
+
+            if verity_success:
+                await asyncio.sleep(1.0)  # 接続完了後に待機
+
+            try:
+                self.set_status("H10 接続中...", "orange")
+                h10_success = await self.h10_monitor.start_monitoring_async()
+            except Exception as e:
+                print(f"H10 connection error: {e}")
+        else:
+            # macOS/Windows: 同時接続
+            results = await asyncio.gather(
+                self.hr_monitor.start_monitoring_async(),
+                self.h10_monitor.start_monitoring_async(),
+                return_exceptions=True
+            )
+            verity_success = isinstance(results[0], bool) and results[0]
+            h10_success = isinstance(results[1], bool) and results[1]
+
+            if isinstance(results[0], Exception):
+                print(f"Verity Sense connection error: {results[0]}")
+            if isinstance(results[1], Exception):
+                print(f"H10 connection error: {results[1]}")
 
         # Update UI based on results
         if verity_success and h10_success:
@@ -1900,10 +1929,6 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             self.set_status("H10 のみ接続", "orange")
         else:
             self.set_status("センサー接続失敗", "red")
-            if isinstance(results[0], Exception):
-                print(f"Verity Sense connection error: {results[0]}")
-            if isinstance(results[1], Exception):
-                print(f"H10 connection error: {results[1]}")
 
         self._update_button_states()
 
