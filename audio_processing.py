@@ -734,11 +734,11 @@ class AudioProcessor:
                 if is_recording_active:
                     rec_end_dt = datetime.datetime.now()
 
-                    # 話し始め時刻を中心に前後5秒（合計10秒）のバッファからHRを取得
+                    # 話し始め時刻を中心に前後2秒（合計4秒）のバッファからHRを取得
                     if self.hr_monitor and self.hr_monitor.is_connected and rec_start_dt:
                         buffered_hr = self.hr_monitor.get_buffered_hr(
                             target_time=rec_start_dt,
-                            window_seconds=5.0
+                            window_seconds=2.0
                         )
                         if buffered_hr is not None:
                             self.log_heartrate_at_recording_start(buffered_hr)
