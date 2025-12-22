@@ -92,6 +92,11 @@ def ecg_to_rri(file_path, fs=130, analysis_start_offset=None, analysis_end_offse
         print(f"エラー: {os.path.basename(file_path)} の読み込みに失敗しました。")
         return np.array([]), None, None
 
+    # データが空の場合（ヘッダーのみ）のチェック
+    if data.empty or len(data) == 0:
+        print(f"エラー: {os.path.basename(file_path)} にデータがありません（H10接続断の可能性）。")
+        return np.array([]), None, None
+
     data['timestamp'] = pd.to_datetime(data['timestamp'])
     start_time_real = data['timestamp'].iloc[0]
     end_time_real = data['timestamp'].iloc[-1]
