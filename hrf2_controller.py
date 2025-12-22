@@ -274,6 +274,7 @@ class RobustController:
         # === MEC（モデル誤差抑制補償器）の状態 ===
         # Cε(s) = k / (1 + s/ω) を離散化
         self._mec_filtered_error: float = 0.0  # ローパスフィルタ後のε
+        self._current_adapted_gain: float = self.config.mec_gain
 
         # === 出力履歴 ===
         self._last_output: float = 1.0
@@ -287,6 +288,7 @@ class RobustController:
         self._mec_filtered_error = 0.0
         self._last_output = 1.0
         self._last_time = None
+        self._current_adapted_gain = self.config.mec_gain
         print("Robust Controller (MEC) reset")
 
     def set_target_hr(self, target_hr: float) -> None:
@@ -350,6 +352,9 @@ class RobustController:
 
         # MEC補償入力: u_mec = -Cε(s)*ε
         u_mec = -self._mec_filtered_error
+        if abs(model_error) > 1e-6:
+            estimated_gain = abs(u_mec / model_error)
+            self._current_adapted_gain = max(0.0, min(5.0, estimated_gain))
 
         # === 基本PI制御器 ===
         error = self._target_hr - self._filtered_hr
@@ -425,6 +430,10 @@ class RobustController:
         """MECカットオフ周波数を設定"""
         self.config.mec_omega = max(0.01, min(0.5, omega))
         print(f"MEC omega set to {self.config.mec_omega}")
+
+    def get_adapted_gain(self) -> float:
+        """現在推定されているMECの実効ゲインを取得"""
+        return self._current_adapted_gain
 
 
 # === コメントアウト: AdaptiveMPCController（ロバスト制御に置き換え） ===

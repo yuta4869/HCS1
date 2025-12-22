@@ -422,13 +422,13 @@ class AudioProcessor:
         self.channels: int = 1
         # config.pyから設定を読み込み（Linux/Ubuntu向けの安定性設定）
         self.chunk_size: int = getattr(config, 'AUDIO_CHUNK_SIZE', 2048)
-        self.silent_threshold: float = 0.03
+        self.silent_threshold: float = 0.02
 
         # Linux/Ubuntu向けの安定性設定
         # input overflow対策: バッファを大きくし、latencyを設定
         self.stream_latency = getattr(config, 'AUDIO_LATENCY', "high")
         self.min_record_seconds: float = 1.0 # Will be used for VAD
-        self.required_silent_seconds: float = 1.3
+        self.required_silent_seconds: float = 1.8
         self.min_audio_length: float = 0.3
 
         # 入力デバイス（マイク）の設定
