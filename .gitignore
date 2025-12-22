@@ -26,6 +26,7 @@ models/
 
 # Logs (large files)
 Logs/
+logs20251222/
 
 # IDE settings
 .vscode/
