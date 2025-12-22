@@ -440,12 +440,16 @@ class H10Monitor:
         self.ecg_lock = threading.Lock() # For synchronizing access to ECG data if needed elsewhere
         self.hr_lock = threading.Lock()
         self.current_h10_hr: int = 0
+        self.last_hr_timestamp: Optional[datetime.datetime] = None  # HR受信時刻
+        self.last_ecg_timestamp: Optional[datetime.datetime] = None  # ECG受信時刻
         self.log_queue: queue.Queue = log_queue_ref
         self.h10_ecg_session_filepath: str = ""
         self.h10_hr_session_filepath: str = ""
         # ECGリアルタイム表示用バッファ（直近5秒分 = 130Hz * 5s = 650サンプル）
         self.ecg_buffer: List[float] = []
         self.ecg_buffer_max_size: int = 650
+        # 接続断検出用の設定
+        self.connection_timeout_seconds: float = 5.0
 
     async def start_monitoring_async(self):
         """Asynchronous method to connect and start monitoring."""
@@ -473,6 +477,30 @@ class H10Monitor:
             # Assuming 'RR interval (ms)' label in GUI should show HR in BPM.
             # If actual RR intervals are needed, a different characteristic or calculation would be required.
             return self.current_h10_hr
+
+    def is_hr_data_stale(self) -> bool:
+        """H10からのHRデータが古くなっているかを判定する。
+
+        Returns:
+            True: データが古い（接続断の可能性あり）
+            False: データは新鮮
+        """
+        if self.last_hr_timestamp is None:
+            return True
+        elapsed = (datetime.datetime.now() - self.last_hr_timestamp).total_seconds()
+        return elapsed > self.connection_timeout_seconds
+
+    def is_ecg_data_stale(self) -> bool:
+        """H10からのECGデータが古くなっているかを判定する。
+
+        Returns:
+            True: データが古い（接続断の可能性あり）
+            False: データは新鮮
+        """
+        if self.last_ecg_timestamp is None:
+            return True
+        elapsed = (datetime.datetime.now() - self.last_ecg_timestamp).total_seconds()
+        return elapsed > self.connection_timeout_seconds
 
     def get_ecg_buffer(self) -> List[float]:
         """リアルタイム表示用ECGバッファを取得（コピーを返す）"""
@@ -550,6 +578,7 @@ class H10Monitor:
                     # バッファサイズを制限
                     if len(self.ecg_buffer) > self.ecg_buffer_max_size:
                         self.ecg_buffer = self.ecg_buffer[-self.ecg_buffer_max_size:]
+                    self.last_ecg_timestamp = current_time
 
                 # ログファイルが設定されている場合のみ記録
                 if self.h10_ecg_session_filepath:
@@ -591,6 +620,7 @@ class H10Monitor:
 
             with self.hr_lock:
                 self.current_h10_hr = hr_value
+                self.last_hr_timestamp = timestamp
 
             # ログファイルが設定されている場合のみ記録
             if self.h10_hr_session_filepath:
