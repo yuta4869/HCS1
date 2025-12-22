@@ -203,6 +203,10 @@ POLAR_H10_NAME = "Polar H10"
 # Characteristic UUIDs
 HR_CHARACTERISTIC_UUID = '00002a37-0000-1000-8000-00805f9b34fb' # Heart Rate Measurement
 
+# Battery Service (BLE標準)
+BATTERY_SERVICE_UUID = '0000180f-0000-1000-8000-00805f9b34fb'  # Battery Service
+BATTERY_LEVEL_UUID = '00002a19-0000-1000-8000-00805f9b34fb'    # Battery Level Characteristic
+
 # Polar H10 PMD (Polar Measurement Data) Service and Characteristics
 PMD_SERVICE = "FB005C80-02E7-F387-1CAD-8ACD2D8DF0C8"
 PMD_CONTROL = "FB005C81-02E7-F387-1CAD-8ACD2D8DF0C8" # For commands
