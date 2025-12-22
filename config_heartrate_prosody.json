@@ -1,5 +1,5 @@
 {
-    "reference_hr": 81,
+    "reference_hr": 73,
     "prosody": {
         "intonation": 1.0,
         "pitch": 0.0,
@@ -15,8 +15,8 @@
         "kp": 0.1,
         "ki": 0.01,
         "kd": 0.0,
-        "target_hr": 89.0,
-        "control_mode": "Robust",
+        "target_hr": 80.3,
+        "control_mode": "PID",
         "gain_schedule": {
             "error_threshold_high": 15.0,
             "error_threshold_medium": 7.0,

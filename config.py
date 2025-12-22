@@ -62,7 +62,7 @@ def _detect_whisper_settings():
         import torch
         if torch.cuda.is_available():
             # CUDA: より大きなモデルと高精度な計算
-            return "small", "float16"
+            return "medium", "float16"
         else:
             # CPU/MPS: faster-whisperはMPS非対応なのでCPU設定
             # int8はCPUで高速、float32は互換性が高い
