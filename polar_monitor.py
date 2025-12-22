@@ -51,6 +51,11 @@ class HeartRateMonitor:
         self.using_h10_fallback: bool = False  # 現在H10からデータを取得中かどうか
         self._fallback_notified: bool = False  # フォールバック通知を出したかどうか
 
+        # バッテリー残量
+        self.battery_level: Optional[int] = None  # 0-100%
+        self.last_battery_check: Optional[datetime.datetime] = None
+        self.battery_check_interval: float = 60.0  # バッテリー確認間隔（秒）
+
     async def start_monitoring_async(self) -> bool:
         """Asynchronous method to connect and start monitoring."""
         try:
@@ -316,6 +321,41 @@ class HeartRateMonitor:
         except Exception as e:
             print(f"Unexpected error during HR processing (Verity): {e}")
 
+    async def read_battery_level(self) -> Optional[int]:
+        """バッテリー残量を読み取る。
+
+        Returns:
+            バッテリー残量（0-100%）。読み取れない場合はNone。
+        """
+        if not self.client or not self.client.is_connected:
+            return None
+
+        try:
+            battery_data = await self.client.read_gatt_char(config.BATTERY_LEVEL_UUID)
+            if battery_data and len(battery_data) >= 1:
+                battery_level = battery_data[0]
+                self.battery_level = battery_level
+                self.last_battery_check = datetime.datetime.now()
+                return battery_level
+        except Exception as e:
+            # バッテリーサービスがない場合やエラーの場合は警告のみ
+            print(f"バッテリー残量の読み取りに失敗 (Verity): {e}")
+        return None
+
+    async def update_battery_if_needed(self) -> Optional[int]:
+        """必要に応じてバッテリー残量を更新する。
+
+        前回の確認から battery_check_interval 秒経過している場合のみ更新。
+        """
+        if self.last_battery_check is None:
+            return await self.read_battery_level()
+
+        elapsed = (datetime.datetime.now() - self.last_battery_check).total_seconds()
+        if elapsed >= self.battery_check_interval:
+            return await self.read_battery_level()
+
+        return self.battery_level
+
     async def connect_to_device(self) -> bool:
         """Connects to the Verity Sense heart rate sensor."""
         try:
@@ -336,6 +376,12 @@ class HeartRateMonitor:
                 self.initialize_hr_prosody_csv() # Initialize log for this connection session
                 await self.client.start_notify(config.HR_CHARACTERISTIC_UUID, self.hr_notification_handler)
                 print("Started receiving heart rate data (Verity)")
+
+                # バッテリー残量を読み取る
+                battery = await self.read_battery_level()
+                if battery is not None:
+                    print(f"Verity Sense バッテリー残量: {battery}%")
+
                 self.is_connected = True
                 return True
             else:
@@ -451,6 +497,11 @@ class H10Monitor:
         # 接続断検出用の設定
         self.connection_timeout_seconds: float = 5.0
 
+        # バッテリー残量
+        self.battery_level: Optional[int] = None  # 0-100%
+        self.last_battery_check: Optional[datetime.datetime] = None
+        self.battery_check_interval: float = 60.0  # バッテリー確認間隔（秒）
+
     async def start_monitoring_async(self):
         """Asynchronous method to connect and start monitoring."""
         try:
@@ -511,6 +562,41 @@ class H10Monitor:
         """ECGバッファをクリア"""
         with self.ecg_lock:
             self.ecg_buffer.clear()
+
+    async def read_battery_level(self) -> Optional[int]:
+        """バッテリー残量を読み取る。
+
+        Returns:
+            バッテリー残量（0-100%）。読み取れない場合はNone。
+        """
+        if not self.client or not self.client.is_connected:
+            return None
+
+        try:
+            battery_data = await self.client.read_gatt_char(config.BATTERY_LEVEL_UUID)
+            if battery_data and len(battery_data) >= 1:
+                battery_level = battery_data[0]
+                self.battery_level = battery_level
+                self.last_battery_check = datetime.datetime.now()
+                return battery_level
+        except Exception as e:
+            # バッテリーサービスがない場合やエラーの場合は警告のみ
+            print(f"バッテリー残量の読み取りに失敗 (H10): {e}")
+        return None
+
+    async def update_battery_if_needed(self) -> Optional[int]:
+        """必要に応じてバッテリー残量を更新する。
+
+        前回の確認から battery_check_interval 秒経過している場合のみ更新。
+        """
+        if self.last_battery_check is None:
+            return await self.read_battery_level()
+
+        elapsed = (datetime.datetime.now() - self.last_battery_check).total_seconds()
+        if elapsed >= self.battery_check_interval:
+            return await self.read_battery_level()
+
+        return self.battery_level
 
     def initialize_h10_ecg_session_csv(self, filepath: str):
         """Stores the intended path for the H10 ECG session log and signals logger thread."""
@@ -724,6 +810,11 @@ class H10Monitor:
                     print("Starting HR stream...")
                     await self.client.start_notify(config.HR_CHARACTERISTIC_UUID, self.h10_hr_notification_handler)
                     print("Started receiving heart rate data (H10)")
+
+                    # バッテリー残量を読み取る
+                    battery = await self.read_battery_level()
+                    if battery is not None:
+                        print(f"H10 バッテリー残量: {battery}%")
 
                     self.is_connected = True
                     return True

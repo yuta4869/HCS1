@@ -1706,40 +1706,44 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                     hr = self.hr_monitor.get_current_hr()
                     verity_stale = self.hr_monitor._is_verity_data_stale()
                     using_h10_fallback = getattr(self.hr_monitor, 'using_h10_fallback', False)
+                    verity_battery = getattr(self.hr_monitor, 'battery_level', None)
+                    battery_str = f" [{verity_battery}%]" if verity_battery is not None else ""
 
                     if verity_stale and hr > 0:
                         if using_h10_fallback:
-                            verity_hr_text = f"{hr} BPM (H10代替)"
+                            verity_hr_text = f"{hr} BPM (H10代替){battery_str}"
                             verity_status_text, verity_status_color = "Verity Sense: 接続断 → H10代替中", "orange"
                         else:
-                            verity_hr_text = f"{hr} BPM (接続断)"
+                            verity_hr_text = f"{hr} BPM (接続断){battery_str}"
                             verity_status_text, verity_status_color = "Verity Sense: 接続断", "orange"
                     elif hr > 0:
-                        verity_hr_text = f"{hr} BPM"
+                        verity_hr_text = f"{hr} BPM{battery_str}"
                         verity_status_text, verity_status_color = "Verity Sense: 接続中", "green"
                     else:
-                        verity_hr_text = "-- BPM"
+                        verity_hr_text = f"-- BPM{battery_str}"
                         verity_status_text, verity_status_color = "Verity Sense: 接続中 (データ待ち)", "orange"
 
                 if self.h10_monitor.is_connected:
                     hr_h10 = self.h10_monitor.current_h10_hr
                     h10_hr_stale = self.h10_monitor.is_hr_data_stale()
                     h10_ecg_stale = self.h10_monitor.is_ecg_data_stale()
+                    h10_battery = getattr(self.h10_monitor, 'battery_level', None)
+                    battery_str = f" [{h10_battery}%]" if h10_battery is not None else ""
 
                     if h10_hr_stale and h10_ecg_stale:
-                        h10_hr_text = f"{hr_h10} BPM (接続断)" if hr_h10 > 0 else "-- BPM (接続断)"
+                        h10_hr_text = f"{hr_h10} BPM (接続断){battery_str}" if hr_h10 > 0 else f"-- BPM (接続断){battery_str}"
                         h10_status_text, h10_status_color = "H10: 接続断", "orange"
                     elif h10_hr_stale:
-                        h10_hr_text = f"{hr_h10} BPM (HR断)" if hr_h10 > 0 else "-- BPM"
+                        h10_hr_text = f"{hr_h10} BPM (HR断){battery_str}" if hr_h10 > 0 else f"-- BPM{battery_str}"
                         h10_status_text, h10_status_color = "H10: ECGのみ", "orange"
                     elif h10_ecg_stale:
-                        h10_hr_text = f"{hr_h10} BPM" if hr_h10 > 0 else "-- BPM"
+                        h10_hr_text = f"{hr_h10} BPM{battery_str}" if hr_h10 > 0 else f"-- BPM{battery_str}"
                         h10_status_text, h10_status_color = "H10: HRのみ (ECG断)", "orange"
                     elif hr_h10 > 0:
-                        h10_hr_text = f"{hr_h10} BPM"
+                        h10_hr_text = f"{hr_h10} BPM{battery_str}"
                         h10_status_text, h10_status_color = "H10: 接続中", "green"
                     else:
-                        h10_hr_text = "-- BPM"
+                        h10_hr_text = f"-- BPM{battery_str}"
                         h10_status_text, h10_status_color = "H10: 接続中 (データ待ち)", "orange"
 
                 if hasattr(self, 'hr_label') and self.hr_label.winfo_exists():
