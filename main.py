@@ -466,6 +466,10 @@ def main():
         hr_monitor = HeartRateMonitor(log_queue_ref=log_q)
         h10_monitor = H10Monitor(log_queue_ref=log_q)
 
+        # H10をVerity Senseのフォールバックとして設定
+        # Verity Senseからの心拍データが途絶えた場合、H10から取得する
+        hr_monitor.set_h10_fallback(h10_monitor)
+
         # 会話システム用マイクの自動検出
         print("\n--- オーディオデバイス設定 ---")
         conversation_mic_device = get_conversation_mic_device()
