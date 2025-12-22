@@ -735,19 +735,31 @@ class AudioProcessor:
                     rec_end_dt = datetime.datetime.now()
 
                     # 話し始め時刻の前2秒＋開始時点＋後2秒（計5サンプル程度）のバッファからHRを取得
-                    if self.hr_monitor and self.hr_monitor.is_connected and rec_start_dt:
-                        buffered_hr = self.hr_monitor.get_buffered_hr(
-                            target_time=rec_start_dt,
-                            window_seconds=2.0
+                    # Verity Senseからのデータが途絶えた場合、自動的にH10へフォールバック
+                    if self.hr_monitor and rec_start_dt:
+                        # Verity Senseが接続されているか、H10フォールバックが利用可能な場合
+                        verity_connected = getattr(self.hr_monitor, 'is_connected', False)
+                        h10_available = (
+                            self.hr_monitor.h10_fallback_monitor is not None and
+                            getattr(self.hr_monitor.h10_fallback_monitor, 'is_connected', False)
                         )
-                        if buffered_hr is not None:
-                            self.log_heartrate_at_recording_start(buffered_hr)
-                            print(f"*** Recorded HR at recording start (Verity, buffered median): {buffered_hr} BPM ***")
-                        else:
-                            # バッファにデータがない場合は現在値を使用
-                            hr_at_start = self.hr_monitor.get_current_hr()
-                            self.log_heartrate_at_recording_start(hr_at_start)
-                            print(f"*** Recorded HR at recording start (Verity, fallback to current): {hr_at_start} BPM ***")
+
+                        if verity_connected or h10_available:
+                            buffered_hr = self.hr_monitor.get_buffered_hr(
+                                target_time=rec_start_dt,
+                                window_seconds=2.0
+                            )
+                            if buffered_hr is not None:
+                                # フォールバック中かどうかでログメッセージを変更
+                                source = "H10 fallback" if self.hr_monitor.using_h10_fallback else "Verity"
+                                self.log_heartrate_at_recording_start(buffered_hr)
+                                print(f"*** Recorded HR at recording start ({source}, buffered): {buffered_hr} BPM ***")
+                            else:
+                                # バッファにデータがない場合は現在値を使用
+                                hr_at_start = self.hr_monitor.get_current_hr()
+                                source = "H10 fallback" if self.hr_monitor.using_h10_fallback else "Verity"
+                                self.log_heartrate_at_recording_start(hr_at_start)
+                                print(f"*** Recorded HR at recording start ({source}, current): {hr_at_start} BPM ***")
 
                 if recorded_chunks:
                     audio_data = np.concatenate(recorded_chunks, axis=0)
@@ -841,8 +853,16 @@ class AudioProcessor:
                 hfb_type_for_log = self.prosody.get_current_mode()
                 target_param_for_hfb = "intonation"
 
-                if self.hr_monitor is None or not getattr(self.hr_monitor, "is_connected", False):
-                    print("HRF2 is enabled but heart rate monitor is not connected.")
+                # Verity Senseが接続されているか、H10フォールバックが利用可能か確認
+                verity_connected = self.hr_monitor is not None and getattr(self.hr_monitor, "is_connected", False)
+                h10_available = (
+                    self.hr_monitor is not None and
+                    self.hr_monitor.h10_fallback_monitor is not None and
+                    getattr(self.hr_monitor.h10_fallback_monitor, 'is_connected', False)
+                )
+
+                if not verity_connected and not h10_available:
+                    print("HRF2 is enabled but no heart rate monitor is available.")
                     applied_hfb_param_value = self.prosody.get_parameter("intonation")
                 else:
                     current_hr = self.hr_monitor.get_current_hr()
@@ -852,8 +872,9 @@ class AudioProcessor:
                         applied_intonation_scale = hrf2_output
                         self.prosody.set_parameter("intonation", hrf2_output)
 
+                        source = "H10" if self.hr_monitor.using_h10_fallback else "Verity"
                         print(
-                            f"{hfb_type_for_log}: Target={debug_info.get('target_hr', 0):.0f} BPM, "
+                            f"{hfb_type_for_log} ({source}): Target={debug_info.get('target_hr', 0):.0f} BPM, "
                             f"Current={current_hr} BPM, Error={debug_info.get('error', 0):.1f}, "
                             f"Output={hrf2_output:.3f}"
                         )
@@ -865,8 +886,16 @@ class AudioProcessor:
             elif hasattr(self.prosody, "is_hfb_enabled") and self.prosody.is_hfb_enabled():
                 hfb_type_for_log = f"Direct({target_param_for_hfb})"
 
-                if self.hr_monitor is None or not getattr(self.hr_monitor, "is_connected", False):
-                    print("HFB (Direct) is enabled but heart rate monitor is not connected.")
+                # Verity Senseが接続されているか、H10フォールバックが利用可能か確認
+                verity_connected = self.hr_monitor is not None and getattr(self.hr_monitor, "is_connected", False)
+                h10_available = (
+                    self.hr_monitor is not None and
+                    self.hr_monitor.h10_fallback_monitor is not None and
+                    getattr(self.hr_monitor.h10_fallback_monitor, 'is_connected', False)
+                )
+
+                if not verity_connected and not h10_available:
+                    print("HFB (Direct) is enabled but no heart rate monitor is available.")
                     # HFB は論理的には有効だが、実際の調整は行わない
                     applied_hfb_param_value = self.prosody.get_parameter(target_param_for_hfb)
                 else:
@@ -890,8 +919,9 @@ class AudioProcessor:
                         min_val, max_val = self.prosody.get_parameter_range(target_param_for_hfb)
                         applied_hfb_param_value = max(min_val, min(max_val, calculated_value))
 
+                        source = "H10" if self.hr_monitor.using_h10_fallback else "Verity"
                         print(
-                            f"HFB (Direct) Calculation ({target_param_for_hfb}): "
+                            f"HFB (Direct, {source}) Calculation ({target_param_for_hfb}): "
                             f"Ref HR={reference_hr} BPM, HR after TTS={hr_for_adjustment_display} BPM "
                             f"(Diff={hr_diff:+d}), base={base_value:.3f}, "
                             f"calculated={calculated_value:.3f}, applied={applied_hfb_param_value:.3f}"
@@ -999,24 +1029,36 @@ class AudioProcessor:
 
             # --------------------------------------------------------------
             # 再生後に HR を取得してログに残す
+            # Verity SenseまたはH10フォールバックから心拍を取得
             # --------------------------------------------------------------
-            if self.hr_monitor is not None and getattr(self.hr_monitor, "is_connected", False):
-                try:
-                    hr_after_this_tts = self.hr_monitor.get_current_hr()
-                    self.last_hr_after_tts = hr_after_this_tts
-                    print(
-                        f"*** Recorded HR after current TTS (Verity): "
-                        f"{self.last_hr_after_tts} BPM (HFB Mode: {hfb_type_for_log}) ***"
-                    )
-                    self.log_heartrate_after_tts(
-                        hr_value=hr_after_this_tts,
-                        applied_intonation=applied_intonation_scale,
-                        hfb_enabled_during_tts=(hfb_type_for_log != "Manual" and hfb_type_for_log != "None"),
-                        playback_start_time=playback_start_dt,
-                        playback_end_time=playback_end_dt,
-                    )
-                except Exception as e_hrlog:
-                    print(f"Failed to log heart rate after TTS: {e_hrlog}")
+            if self.hr_monitor is not None:
+                # Verity Senseが接続されているか、H10フォールバックが利用可能な場合
+                verity_connected = getattr(self.hr_monitor, "is_connected", False)
+                h10_available = (
+                    self.hr_monitor.h10_fallback_monitor is not None and
+                    getattr(self.hr_monitor.h10_fallback_monitor, 'is_connected', False)
+                )
+
+                if verity_connected or h10_available:
+                    try:
+                        hr_after_this_tts = self.hr_monitor.get_current_hr()
+                        self.last_hr_after_tts = hr_after_this_tts
+                        source = "H10 fallback" if self.hr_monitor.using_h10_fallback else "Verity"
+                        print(
+                            f"*** Recorded HR after current TTS ({source}): "
+                            f"{self.last_hr_after_tts} BPM (HFB Mode: {hfb_type_for_log}) ***"
+                        )
+                        self.log_heartrate_after_tts(
+                            hr_value=hr_after_this_tts,
+                            applied_intonation=applied_intonation_scale,
+                            hfb_enabled_during_tts=(hfb_type_for_log != "Manual" and hfb_type_for_log != "None"),
+                            playback_start_time=playback_start_dt,
+                            playback_end_time=playback_end_dt,
+                        )
+                    except Exception as e_hrlog:
+                        print(f"Failed to log heart rate after TTS: {e_hrlog}")
+                else:
+                    self.last_hr_after_tts = None
             else:
                 self.last_hr_after_tts = None
 

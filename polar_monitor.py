@@ -15,7 +15,13 @@ from logger_utils import get_timestamped_log_path
 
 
 class HeartRateMonitor:
-    """Monitors heart rate from Verity Sense and manages data logging via queue."""
+    """Monitors heart rate from Verity Sense and manages data logging via queue.
+
+    H10Monitorへのフォールバック機能:
+    Verity Senseからの心拍取得が途絶えた場合、H10Monitorから心拍を取得する。
+    - connection_timeout_seconds: 接続が切れたと判断するまでの秒数
+    - h10_fallback_monitor: フォールバック先のH10Monitorインスタンス
+    """
     def __init__(self, log_queue_ref: queue.Queue):
         self.current_hr: int = 0
         self.reference_hr: int = 70 # Default, can be updated
@@ -38,6 +44,12 @@ class HeartRateMonitor:
         # 発話開始時刻の前2秒＋開始時点＋後2秒（計5サンプル程度）のバッファを保持
         self.hr_buffer: List[Dict[str, Any]] = []
         self.hr_buffer_duration_seconds: float = 5.0  # バッファ保持時間（秒）
+
+        # H10フォールバック機能
+        self.h10_fallback_monitor: Optional[Any] = None  # H10Monitorインスタンス
+        self.connection_timeout_seconds: float = 5.0  # 接続断と判断するまでの秒数
+        self.using_h10_fallback: bool = False  # 現在H10からデータを取得中かどうか
+        self._fallback_notified: bool = False  # フォールバック通知を出したかどうか
 
     async def start_monitoring_async(self) -> bool:
         """Asynchronous method to connect and start monitoring."""
@@ -109,9 +121,68 @@ class HeartRateMonitor:
             print(f"Reference HR set to: {value}")
         self.log_hr_with_prosody()
 
+    def set_h10_fallback(self, h10_monitor: Any) -> None:
+        """H10Monitorをフォールバック先として設定する。
+
+        Args:
+            h10_monitor: H10Monitorインスタンス
+        """
+        self.h10_fallback_monitor = h10_monitor
+        print("H10 fallback monitor configured for HeartRateMonitor.")
+
+    def _is_verity_data_stale(self) -> bool:
+        """Verity Senseからのデータが古くなっているかを判定する。
+
+        Returns:
+            True: データが古い（接続断の可能性あり）
+            False: データは新鮮
+        """
+        if self.last_timestamp is None:
+            return True
+        elapsed = (datetime.datetime.now() - self.last_timestamp).total_seconds()
+        return elapsed > self.connection_timeout_seconds
+
+    def _try_h10_fallback(self) -> Optional[int]:
+        """H10からの心拍数取得を試みる。
+
+        Returns:
+            H10から取得した心拍数。取得できない場合はNone。
+        """
+        if self.h10_fallback_monitor is None:
+            return None
+        if not getattr(self.h10_fallback_monitor, 'is_connected', False):
+            return None
+
+        h10_hr = self.h10_fallback_monitor.get_current_rr()  # H10のHR取得メソッド
+        if h10_hr > 0:
+            if not self._fallback_notified:
+                print("⚠️ Verity Sense data stale. Switching to H10 for heart rate.")
+                self._fallback_notified = True
+            self.using_h10_fallback = True
+            return h10_hr
+        return None
+
     def get_current_hr(self) -> int:
-        """Gets the current heart rate."""
+        """Gets the current heart rate.
+
+        Verity Senseからのデータが一定時間途絶えた場合、
+        H10Monitorからの心拍数にフォールバックする。
+        """
         with self.hr_lock:
+            # Verity Senseのデータが新鮮な場合はそのまま返す
+            if not self._is_verity_data_stale():
+                if self.using_h10_fallback:
+                    print("✓ Verity Sense connection restored. Switching back from H10.")
+                    self.using_h10_fallback = False
+                    self._fallback_notified = False
+                return self.current_hr
+
+            # Verity Senseのデータが古い場合、H10へフォールバック
+            h10_hr = self._try_h10_fallback()
+            if h10_hr is not None:
+                return h10_hr
+
+            # H10も使えない場合は最後のVerity Senseの値を返す
             return self.current_hr
 
     def get_buffered_hr(self, target_time: Optional[datetime.datetime] = None,
@@ -122,18 +193,17 @@ class HeartRateMonitor:
         発話開始時刻の前2秒＋開始時点＋後2秒で計5サンプル程度（心拍は約1Hz）を取得し、
         中央値を算出することでノイズの影響を軽減する。
 
+        Verity Senseのバッファにデータがない場合、H10からの心拍数にフォールバックする。
+
         Args:
             target_time: 中心となる時刻。Noneの場合は現在時刻を使用。
             window_seconds: 前後の秒数。デフォルトは2秒（前2秒＋後2秒、計約5サンプル）。
 
         Returns:
             バッファ内のデータから計算した中央値心拍数。
-            データが不足している場合はNone。
+            データが不足している場合はH10からの値、それもない場合はNone。
         """
         with self.hr_lock:
-            if not self.hr_buffer:
-                return None
-
             if target_time is None:
                 target_time = datetime.datetime.now()
 
@@ -146,11 +216,16 @@ class HeartRateMonitor:
                 if window_start <= entry['timestamp'] <= window_end
             ]
 
-            if not hr_values:
-                return None
+            if hr_values:
+                return int(statistics.median(hr_values))
 
-            # 中央値を計算
-            return int(statistics.median(hr_values))
+            # Verity Senseのバッファにデータがない場合、H10へフォールバック
+            if self._is_verity_data_stale():
+                h10_hr = self._try_h10_fallback()
+                if h10_hr is not None:
+                    return h10_hr
+
+            return None
 
     def get_reference_hr(self) -> int:
         """Gets the reference heart rate."""
