@@ -35,9 +35,9 @@ class HeartRateMonitor:
         self.session_mode: Optional[str] = None
 
         # 話し始めトリガー用HRバッファ（タイムスタンプ付き）
-        # 前後2秒（合計4秒）のバッファを保持
+        # 発話開始時刻の前2秒＋開始時点＋後2秒（計5サンプル程度）のバッファを保持
         self.hr_buffer: List[Dict[str, Any]] = []
-        self.hr_buffer_duration_seconds: float = 4.0  # バッファ保持時間（秒）
+        self.hr_buffer_duration_seconds: float = 5.0  # バッファ保持時間（秒）
 
     async def start_monitoring_async(self) -> bool:
         """Asynchronous method to connect and start monitoring."""
@@ -117,12 +117,14 @@ class HeartRateMonitor:
     def get_buffered_hr(self, target_time: Optional[datetime.datetime] = None,
                         window_seconds: float = 2.0) -> Optional[int]:
         """
-        指定した時刻を中心に前後window_seconds秒（合計2*window_seconds秒）の
-        心拍数データから中央値を計算して返す。
+        指定した時刻を中心に前後window_seconds秒の心拍数データから中央値を計算して返す。
+
+        発話開始時刻の前2秒＋開始時点＋後2秒で計5サンプル程度（心拍は約1Hz）を取得し、
+        中央値を算出することでノイズの影響を軽減する。
 
         Args:
             target_time: 中心となる時刻。Noneの場合は現在時刻を使用。
-            window_seconds: 前後の秒数。デフォルトは2秒（合計4秒）。
+            window_seconds: 前後の秒数。デフォルトは2秒（前2秒＋後2秒、計約5サンプル）。
 
         Returns:
             バッファ内のデータから計算した中央値心拍数。

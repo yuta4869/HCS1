@@ -734,7 +734,7 @@ class AudioProcessor:
                 if is_recording_active:
                     rec_end_dt = datetime.datetime.now()
 
-                    # 話し始め時刻を中心に前後2秒（合計4秒）のバッファからHRを取得
+                    # 話し始め時刻の前2秒＋開始時点＋後2秒（計5サンプル程度）のバッファからHRを取得
                     if self.hr_monitor and self.hr_monitor.is_connected and rec_start_dt:
                         buffered_hr = self.hr_monitor.get_buffered_hr(
                             target_time=rec_start_dt,
