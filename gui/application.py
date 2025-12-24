@@ -894,9 +894,43 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         ttk.Entry(input_frame, textvariable=self.questionnaire_file_var, width=50).grid(row=1, column=1, sticky="ew", padx=5, pady=5)
         ttk.Button(input_frame, text="参照...", command=self._browse_questionnaire_file).grid(row=1, column=2, padx=5, pady=5)
 
+        # --- 独自アンケート解析セクション ---
+        custom_frame = ttk.LabelFrame(main_frame, text="独自アンケート解析", padding="10")
+        custom_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+
+        ttk.Label(custom_frame, text="列範囲:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.custom_start_col_var = tk.StringVar(value="D")
+        self.custom_end_col_var = tk.StringVar(value="Y")
+
+        ttk.Entry(custom_frame, textvariable=self.custom_start_col_var, width=5).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        ttk.Label(custom_frame, text="〜").grid(row=0, column=2, padx=5, pady=5)
+        ttk.Entry(custom_frame, textvariable=self.custom_end_col_var, width=5).grid(row=0, column=3, sticky="w", padx=5, pady=5)
+
+        self.custom_run_button = ttk.Button(custom_frame, text="箱ひげ図を作成", command=self._run_custom_questionnaire_analysis)
+        self.custom_run_button.grid(row=0, column=4, padx=20, pady=5)
+
+        # --- PANAS解析セクション ---
+        panas_frame = ttk.LabelFrame(main_frame, text="PANAS解析", padding="10")
+        panas_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+
+        ttk.Label(panas_frame, text="列範囲:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.panas_start_col_var = tk.StringVar(value="Z")
+        self.panas_end_col_var = tk.StringVar(value="AO")
+
+        ttk.Entry(panas_frame, textvariable=self.panas_start_col_var, width=5).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        ttk.Label(panas_frame, text="〜").grid(row=0, column=2, padx=5, pady=5)
+        ttk.Entry(panas_frame, textvariable=self.panas_end_col_var, width=5).grid(row=0, column=3, sticky="w", padx=5, pady=5)
+
+        self.panas_run_button = ttk.Button(panas_frame, text="PANAS解析を実行", command=self._run_panas_analysis)
+        self.panas_run_button.grid(row=0, column=4, padx=20, pady=5)
+
+        ttk.Label(panas_frame, text="(PA/NA得点、信頼性係数α/ωを算出)", foreground="gray").grid(
+            row=0, column=5, sticky="w", padx=5, pady=5
+        )
+
         # --- 条件フィルタ ---
         condition_frame = ttk.LabelFrame(main_frame, text="条件フィルタ", padding="10")
-        condition_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        condition_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
         condition_frame.columnconfigure(0, weight=1)
         ttk.Label(condition_frame, text="箱ひげ図に含める条件を選択してください。").grid(
             row=0, column=0, sticky="w", padx=5, pady=(0, 5)
@@ -935,27 +969,17 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             command=lambda: self._set_all_questionnaire_conditions(False)
         ).pack(side=tk.LEFT)
 
-        # --- 実行ボタン ---
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=10)
-
-        self.questionnaire_run_button = ttk.Button(button_frame, text="箱ひげ図を作成", command=self._run_questionnaire_analysis)
-        self.questionnaire_run_button.pack(side=tk.LEFT, padx=5)
-
-        self.panas_run_button = ttk.Button(button_frame, text="PANAS解析", command=self._run_panas_analysis)
-        self.panas_run_button.pack(side=tk.LEFT, padx=5)
-
         # --- ステータス表示 ---
         self.questionnaire_status_var = tk.StringVar(value="ファイルを選択してください。")
         status_label = ttk.Label(main_frame, textvariable=self.questionnaire_status_var, foreground="blue", wraplength=800)
-        status_label.grid(row=3, column=0, sticky="w", padx=10, pady=5)
+        status_label.grid(row=4, column=0, sticky="w", padx=10, pady=5)
 
         # --- 結果プレビュー用フレーム ---
         preview_frame = ttk.LabelFrame(main_frame, text="プレビュー", padding="10")
-        preview_frame.grid(row=4, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.grid(row=5, column=0, sticky="nsew", padx=5, pady=5)
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(4, weight=1)
+        main_frame.rowconfigure(5, weight=1)
 
         self.questionnaire_preview_frame = ttk.Frame(preview_frame)
         self.questionnaire_preview_frame.grid(row=0, column=0, sticky="nsew")
@@ -1322,8 +1346,8 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             label.grid(row=0, column=0, sticky="nsew", pady=10)
             self.questionnaire_canvas_items.append(label)
 
-    def _run_questionnaire_analysis(self):
-        """アンケート解析を実行"""
+    def _run_custom_questionnaire_analysis(self):
+        """独自アンケート解析（箱ひげ図）を実行"""
         file_path = self.questionnaire_file_var.get()
         if not file_path:
             messagebox.showwarning("ファイル未選択", "Excelファイルを選択してください。")
@@ -1333,13 +1357,19 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             messagebox.showwarning("条件未選択", "少なくとも1つの条件を選択してください。")
             return
 
-        self.questionnaire_run_button.config(state=tk.DISABLED)
+        # 列範囲を取得
+        start_col = self.custom_start_col_var.get().strip() or None
+        end_col = self.custom_end_col_var.get().strip() or None
+
+        self.custom_run_button.config(state=tk.DISABLED)
         self.questionnaire_status_var.set("箱ひげ図を作成中...")
         self.update_idletasks()
 
-        def run_in_thread(conditions: List[str]):
+        def run_in_thread(conditions: List[str], start: str, end: str):
             try:
-                result = analys_q_generate_plots(file_path, condition_order=conditions)
+                result = analys_q_generate_plots(
+                    file_path, condition_order=conditions, start_col=start, end_col=end
+                )
                 summary_path = str(result['summary_path'])
                 # メインスレッドでPNG画像を表示
                 self.after(0, lambda: self._display_questionnaire_image(summary_path))
@@ -1359,9 +1389,9 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                 self.after(0, lambda: messagebox.showerror("エラー", f"箱ひげ図の作成に失敗しました。\n{exc}"))
                 self.after(0, lambda: self.questionnaire_status_var.set("箱ひげ図の作成に失敗しました。"))
             finally:
-                self.after(0, lambda: self.questionnaire_run_button.config(state=tk.NORMAL))
+                self.after(0, lambda: self.custom_run_button.config(state=tk.NORMAL))
 
-        threading.Thread(target=run_in_thread, args=(selected_conditions,), daemon=True).start()
+        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col), daemon=True).start()
 
     def _run_panas_analysis(self):
         """PANAS解析を実行"""
@@ -1374,11 +1404,15 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             messagebox.showwarning("条件未選択", "少なくとも1つの条件を選択してください。")
             return
 
+        # PANAS用の列範囲を取得
+        start_col = self.panas_start_col_var.get().strip() or "Z"
+        end_col = self.panas_end_col_var.get().strip() or "AO"
+
         self.panas_run_button.config(state=tk.DISABLED)
         self.questionnaire_status_var.set("PANAS解析を実行中...")
         self.update_idletasks()
 
-        def run_in_thread(conditions: List[str]):
+        def run_in_thread(conditions: List[str], start: str, end: str):
             try:
                 result = generate_panas_plots(file_path, condition_order=conditions)
                 summary_path = str(result['summary_path'])
@@ -1419,7 +1453,7 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             finally:
                 self.after(0, lambda: self.panas_run_button.config(state=tk.NORMAL))
 
-        threading.Thread(target=run_in_thread, args=(selected_conditions,), daemon=True).start()
+        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col), daemon=True).start()
 
     def _on_subject_id_change(self, *_) -> None:
         self._update_subject_id_hint()

@@ -56,8 +56,29 @@ def normalize_condition(value):
     return Q_CONDITION_MAP.get(as_int, str(value))
 
 
-def load_and_melt_data(file_path: str, condition_order: Optional[List[str]] = None):
-    """Excelを読み込み、ロング形式DataFrameと設問タイトルを返す。"""
+def column_letter_to_index(letter: str) -> int:
+    """Excel列文字（A, B, ..., Z, AA, AB, ...）を0ベースのインデックスに変換"""
+    letter = letter.upper().strip()
+    result = 0
+    for char in letter:
+        result = result * 26 + (ord(char) - ord('A') + 1)
+    return result - 1  # 0ベースに変換
+
+
+def load_and_melt_data(
+    file_path: str,
+    condition_order: Optional[List[str]] = None,
+    start_col: Optional[str] = None,
+    end_col: Optional[str] = None
+):
+    """Excelを読み込み、ロング形式DataFrameと設問タイトルを返す。
+
+    Args:
+        file_path: Excelファイルのパス
+        condition_order: 条件の順序（Noneの場合はデフォルト）
+        start_col: 開始列（Excel列名、例: "D"）。Noneの場合はD列から
+        end_col: 終了列（Excel列名、例: "W"）。Noneの場合は最後の列まで
+    """
     df = pd.read_excel(file_path)
     if df.shape[1] < 4:
         raise ValueError("必要な列（B〜W列）が足りません。")
@@ -66,13 +87,32 @@ def load_and_melt_data(file_path: str, condition_order: Optional[List[str]] = No
 
     subject_series = df.iloc[:, 1].astype(str)
     condition_series = df.iloc[:, 2].apply(normalize_condition)
-    question_df_raw = df.iloc[:, 3:]
-    if question_df_raw.shape[1] <= 1:
+
+    # 列範囲の計算
+    if start_col:
+        start_idx = column_letter_to_index(start_col)
+    else:
+        start_idx = 3  # D列（0ベースで3）
+
+    if end_col:
+        end_idx = column_letter_to_index(end_col) + 1  # 終了列を含むため+1
+    else:
+        end_idx = df.shape[1] - 1  # 最後の列の1つ前まで（従来の動作）
+
+    # 範囲チェック
+    if start_idx >= df.shape[1]:
+        raise ValueError(f"開始列 '{start_col}' がデータ範囲外です。")
+    if end_idx > df.shape[1]:
+        end_idx = df.shape[1]
+    if start_idx >= end_idx:
+        raise ValueError(f"開始列 '{start_col}' が終了列 '{end_col}' より後ろにあります。")
+
+    question_df = df.iloc[:, start_idx:end_idx].apply(pd.to_numeric, errors="coerce")
+    if question_df.shape[1] == 0:
         raise ValueError("設問列が不足しています。")
-    question_df = question_df_raw.iloc[:, :-1].apply(pd.to_numeric, errors="coerce")
+
     question_columns = question_df.columns.tolist()
-    title_end = 3 + len(question_columns)
-    question_titles = top_row.iloc[0, 3:title_end]
+    question_titles = top_row.iloc[0, start_idx:end_idx]
     question_labels = {}
     for col, title in zip(question_columns, question_titles):
         title_str = str(title).strip()
@@ -100,15 +140,28 @@ def load_and_melt_data(file_path: str, condition_order: Optional[List[str]] = No
     return tidy_df, question_labels
 
 
-def generate_plots(file_path: str, condition_order: Optional[List[str]] = None):
+def generate_plots(
+    file_path: str,
+    condition_order: Optional[List[str]] = None,
+    start_col: Optional[str] = None,
+    end_col: Optional[str] = None
+):
     """Excelを読み込み、箱ひげ図を作成する。
 
     スレッドセーフ: matplotlib.figure.Figureを直接使用してバックエンドに依存しない。
+
+    Args:
+        file_path: Excelファイルのパス
+        condition_order: 条件の順序
+        start_col: 開始列（Excel列名、例: "D"）
+        end_col: 終了列（Excel列名、例: "W"）
     """
     from matplotlib.figure import Figure
     from matplotlib.backends.backend_agg import FigureCanvasAgg
 
-    tidy_df, question_labels = load_and_melt_data(file_path, condition_order=condition_order)
+    tidy_df, question_labels = load_and_melt_data(
+        file_path, condition_order=condition_order, start_col=start_col, end_col=end_col
+    )
     output_dir = Path(file_path).parent
 
     active_conditions = list(tidy_df["Condition"].cat.categories)
