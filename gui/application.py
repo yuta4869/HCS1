@@ -57,6 +57,10 @@ from .questionnaire_analysis import (
     Q_CONDITION_COLORS,
     generate_plots as analys_q_generate_plots,
 )
+from .panas_analysis import (
+    generate_panas_plots,
+    format_reliability_text,
+)
 from .realtime_monitor import RealtimeMonitorMixin
 from .timeseries_analysis import TimeseriesAnalysisMixin
 
@@ -938,6 +942,9 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         self.questionnaire_run_button = ttk.Button(button_frame, text="箱ひげ図を作成", command=self._run_questionnaire_analysis)
         self.questionnaire_run_button.pack(side=tk.LEFT, padx=5)
 
+        self.panas_run_button = ttk.Button(button_frame, text="PANAS解析", command=self._run_panas_analysis)
+        self.panas_run_button.pack(side=tk.LEFT, padx=5)
+
         # --- ステータス表示 ---
         self.questionnaire_status_var = tk.StringVar(value="ファイルを選択してください。")
         status_label = ttk.Label(main_frame, textvariable=self.questionnaire_status_var, foreground="blue", wraplength=800)
@@ -1258,24 +1265,62 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             self.questionnaire_status_var.set(f"{os.path.basename(file_path)} を選択しました。")
 
     def _clear_questionnaire_canvas(self):
-        for canvas in self.questionnaire_canvas_items:
+        for item in self.questionnaire_canvas_items:
             try:
-                canvas.get_tk_widget().destroy()
+                if hasattr(item, 'get_tk_widget'):
+                    item.get_tk_widget().destroy()
+                elif hasattr(item, 'destroy'):
+                    item.destroy()
             except Exception:
                 pass
         self.questionnaire_canvas_items.clear()
+        # PhotoImageの参照を保持するリストもクリア
+        if not hasattr(self, '_questionnaire_photo_refs'):
+            self._questionnaire_photo_refs = []
+        self._questionnaire_photo_refs.clear()
 
-    def _display_questionnaire_figures(self, figures):
+    def _display_questionnaire_image(self, image_path: str):
+        """保存済みのPNG画像をGUIに表示する"""
         self._clear_questionnaire_canvas()
-        for idx, fig in enumerate(figures):
-            canvas = FigureCanvasTkAgg(fig, master=self.questionnaire_preview_frame)
-            canvas.draw()
-            widget = canvas.get_tk_widget()
-            widget.grid(row=idx, column=0, sticky="nsew", pady=10)
-            self.questionnaire_canvas_items.append(canvas)
-        for row in range(len(figures)):
-            self.questionnaire_preview_frame.rowconfigure(row, weight=1)
-        self.questionnaire_preview_frame.columnconfigure(0, weight=1)
+        try:
+            from PIL import Image, ImageTk
+            # 画像を読み込んでリサイズ
+            img = Image.open(image_path)
+            # プレビューフレームの幅に合わせてリサイズ
+            max_width = 800
+            if img.width > max_width:
+                ratio = max_width / img.width
+                new_size = (max_width, int(img.height * ratio))
+                img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+            photo = ImageTk.PhotoImage(img)
+            # PhotoImageの参照を保持（ガベージコレクション対策）
+            if not hasattr(self, '_questionnaire_photo_refs'):
+                self._questionnaire_photo_refs = []
+            self._questionnaire_photo_refs.append(photo)
+
+            label = tk.Label(self.questionnaire_preview_frame, image=photo)
+            label.grid(row=0, column=0, sticky="nsew", pady=10)
+            self.questionnaire_canvas_items.append(label)
+            self.questionnaire_preview_frame.rowconfigure(0, weight=1)
+            self.questionnaire_preview_frame.columnconfigure(0, weight=1)
+        except ImportError:
+            # PILがない場合はメッセージを表示
+            label = tk.Label(
+                self.questionnaire_preview_frame,
+                text=f"画像プレビューにはPillowが必要です。\n保存先: {image_path}",
+                wraplength=600
+            )
+            label.grid(row=0, column=0, sticky="nsew", pady=10)
+            self.questionnaire_canvas_items.append(label)
+        except Exception as e:
+            label = tk.Label(
+                self.questionnaire_preview_frame,
+                text=f"画像の表示に失敗しました: {e}\n保存先: {image_path}",
+                wraplength=600
+            )
+            label.grid(row=0, column=0, sticky="nsew", pady=10)
+            self.questionnaire_canvas_items.append(label)
 
     def _run_questionnaire_analysis(self):
         """アンケート解析を実行"""
@@ -1295,7 +1340,9 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         def run_in_thread(conditions: List[str]):
             try:
                 result = analys_q_generate_plots(file_path, condition_order=conditions)
-                self.after(0, lambda: self._display_questionnaire_figures(result["figures"]))
+                summary_path = str(result['summary_path'])
+                # メインスレッドでPNG画像を表示
+                self.after(0, lambda: self._display_questionnaire_image(summary_path))
                 self.after(0, lambda: self.questionnaire_status_var.set(
                     f"サマリー: {result['summary_path'].name} / "
                     f"設問別: {len(result['per_question_paths'])}枚を question_boxplots フォルダに保存 "
@@ -1303,14 +1350,74 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                 ))
                 self.after(0, lambda: messagebox.showinfo(
                     "完了",
-                    "箱ひげ図を作成し、GUIにプレビューしました。\n"
-                    "PNGファイルもExcelと同じフォルダに保存しました。",
+                    "箱ひげ図を作成しました。\n"
+                    "PNGファイルをExcelと同じフォルダに保存しました。",
                 ))
             except Exception as exc:
+                import traceback
+                traceback.print_exc()
                 self.after(0, lambda: messagebox.showerror("エラー", f"箱ひげ図の作成に失敗しました。\n{exc}"))
                 self.after(0, lambda: self.questionnaire_status_var.set("箱ひげ図の作成に失敗しました。"))
             finally:
                 self.after(0, lambda: self.questionnaire_run_button.config(state=tk.NORMAL))
+
+        threading.Thread(target=run_in_thread, args=(selected_conditions,), daemon=True).start()
+
+    def _run_panas_analysis(self):
+        """PANAS解析を実行"""
+        file_path = self.questionnaire_file_var.get()
+        if not file_path:
+            messagebox.showwarning("ファイル未選択", "Excelファイルを選択してください。")
+            return
+        selected_conditions = self._get_selected_questionnaire_conditions()
+        if not selected_conditions:
+            messagebox.showwarning("条件未選択", "少なくとも1つの条件を選択してください。")
+            return
+
+        self.panas_run_button.config(state=tk.DISABLED)
+        self.questionnaire_status_var.set("PANAS解析を実行中...")
+        self.update_idletasks()
+
+        def run_in_thread(conditions: List[str]):
+            try:
+                result = generate_panas_plots(file_path, condition_order=conditions)
+                summary_path = str(result['summary_path'])
+
+                # 信頼性係数のテキストを生成
+                reliability_text = format_reliability_text(result['analysis']['reliability'])
+
+                # メインスレッドでPNG画像を表示
+                self.after(0, lambda: self._display_questionnaire_image(summary_path))
+                self.after(0, lambda: self.questionnaire_status_var.set(
+                    f"PANAS解析完了: {result['excel_path'].name} / "
+                    f"グラフ: {len(result['figure_paths'])}枚を PANAS_analysis フォルダに保存"
+                ))
+
+                # 結果ダイアログ
+                def show_result():
+                    # 条件別統計のサマリー
+                    stats_lines = ["=== 条件別PANAS得点 ===\n"]
+                    for cond, stats in result['analysis']['results_by_condition'].items():
+                        stats_lines.append(f"【{cond}】 n={stats['n']}")
+                        stats_lines.append(f"  PA: {stats['PA_mean']:.1f} ± {stats['PA_std']:.1f}")
+                        stats_lines.append(f"  NA: {stats['NA_mean']:.1f} ± {stats['NA_std']:.1f}")
+                        stats_lines.append("")
+
+                    full_text = "\n".join(stats_lines) + "\n" + reliability_text
+                    messagebox.showinfo(
+                        "PANAS解析完了",
+                        f"解析結果を保存しました。\n\n{full_text}"
+                    )
+
+                self.after(0, show_result)
+
+            except Exception as exc:
+                import traceback
+                traceback.print_exc()
+                self.after(0, lambda: messagebox.showerror("エラー", f"PANAS解析に失敗しました。\n{exc}"))
+                self.after(0, lambda: self.questionnaire_status_var.set("PANAS解析に失敗しました。"))
+            finally:
+                self.after(0, lambda: self.panas_run_button.config(state=tk.NORMAL))
 
         threading.Thread(target=run_in_thread, args=(selected_conditions,), daemon=True).start()
 

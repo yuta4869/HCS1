@@ -971,17 +971,18 @@ class AudioProcessor:
 
             # --------------------------------------------------------------
             # ProsodySettings から VOICEVOX パラメータに反映
+            # 小数第3位以下は四捨五入（VOICEVOXの実質的な精度は小数第1〜2位程度）
             # --------------------------------------------------------------
-            audio_query["intonationScale"] = self.prosody.get_parameter("intonation")
-            audio_query["pitchScale"] = self.prosody.get_parameter("pitch")
-            audio_query["speedScale"] = self.prosody.get_parameter("speed")
-            audio_query["volumeScale"] = self.prosody.get_parameter("energy")
+            audio_query["intonationScale"] = round(self.prosody.get_parameter("intonation"), 2)
+            audio_query["pitchScale"] = round(self.prosody.get_parameter("pitch"), 2)
+            audio_query["speedScale"] = round(self.prosody.get_parameter("speed"), 2)
+            audio_query["volumeScale"] = round(self.prosody.get_parameter("energy"), 2)
 
-            # 休止時間 (前後の無音長)
+            # 休止時間 (前後の無音長) - 同様に小数第2位で四捨五入
             default_pause_s = float(audio_query.get("prePhonemeLength", 0.1))
-            pause_scale = self.prosody.get_parameter("pause_duration")
-            audio_query["prePhonemeLength"] = default_pause_s * pause_scale
-            audio_query["postPhonemeLength"] = default_pause_s * pause_scale
+            pause_scale = round(self.prosody.get_parameter("pause_duration"), 2)
+            audio_query["prePhonemeLength"] = round(default_pause_s * pause_scale, 2)
+            audio_query["postPhonemeLength"] = round(default_pause_s * pause_scale, 2)
 
             print(
                 f"Synthesis params: Speaker={self.speaker.current_style_id}, "

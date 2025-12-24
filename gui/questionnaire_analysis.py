@@ -6,7 +6,6 @@ from typing import List, Optional
 
 import pandas as pd
 import matplotlib
-matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import seaborn as sns
 try:
@@ -102,69 +101,91 @@ def load_and_melt_data(file_path: str, condition_order: Optional[List[str]] = No
 
 
 def generate_plots(file_path: str, condition_order: Optional[List[str]] = None):
-    """Excelを読み込み、箱ひげ図を作成する。"""
-    plt.close("all")
+    """Excelを読み込み、箱ひげ図を作成する。
+
+    スレッドセーフ: matplotlib.figure.Figureを直接使用してバックエンドに依存しない。
+    """
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
     tidy_df, question_labels = load_and_melt_data(file_path, condition_order=condition_order)
     output_dir = Path(file_path).parent
 
     active_conditions = list(tidy_df["Condition"].cat.categories)
     palette = [Q_CONDITION_COLORS.get(name, "#999999") for name in active_conditions]
 
-    g = sns.catplot(
-        data=tidy_df,
-        x="Condition",
-        y="Score",
-        col="Question",
-        col_wrap=3,
-        kind="box",
-        order=active_conditions,
-        palette=palette,
-        sharey=False,
-        height=3.8,
-    )
-    g.set_axis_labels("", "")
-    if g.axes is not None:
-        for ax in g.axes.flatten():
-            if ax is not None:
-                ax.set_title("")
+    # サマリーグリッド図を作成（seabornのcatplotは使わず手動で作成）
+    questions = list(tidy_df["Question"].cat.categories)
+    n_questions = len(questions)
+    n_cols = 3
+    n_rows = (n_questions + n_cols - 1) // n_cols
 
+    fig_summary = Figure(figsize=(n_cols * 3.8, n_rows * 3.8))
+    canvas_summary = FigureCanvasAgg(fig_summary)
+
+    for idx, question in enumerate(questions):
+        ax = fig_summary.add_subplot(n_rows, n_cols, idx + 1)
+        question_data = tidy_df[tidy_df["Question"] == question]
+        if not question_data.empty:
+            sns.boxplot(
+                data=question_data,
+                x="Condition",
+                y="Score",
+                order=active_conditions,
+                hue="Condition",
+                palette=palette,
+                legend=False,
+                ax=ax,
+            )
+        ax.set_title("")
+        ax.set_xlabel("")
+        ax.set_ylabel("")
+        ax.tick_params(axis='x', rotation=45)
+
+    fig_summary.tight_layout()
     output_path = output_dir / "question_boxplots_grid.png"
-    g.savefig(output_path, dpi=300, bbox_inches="tight")
+    fig_summary.savefig(output_path, dpi=300, bbox_inches="tight")
 
+    # 個別の設問ごとの図を作成
     question_dir = output_dir / "question_boxplots"
     question_dir.mkdir(exist_ok=True)
 
     figure_paths = []
-    for question in tidy_df["Question"].cat.categories:
+    for question in questions:
         question_data = tidy_df[tidy_df["Question"] == question]
         if question_data.empty:
             continue
         title = question_labels.get(question, question) or question
-        fig, ax = plt.subplots(figsize=(5, 4))
+
+        fig = Figure(figsize=(5, 4))
+        canvas = FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
+
         sns.boxplot(
             data=question_data,
             x="Condition",
             y="Score",
             order=active_conditions,
+            hue="Condition",
             palette=palette,
+            legend=False,
             ax=ax,
         )
         ax.set_title("")
         ax.set_xlabel("")
         ax.set_ylabel("")
         ax.grid(axis="y", linestyle="--", alpha=0.5)
+        ax.tick_params(axis='x', rotation=45)
         fig.tight_layout()
 
         filename = str(title).replace("/", "_").replace("\\", "_").replace(" ", "_")
         path = question_dir / f"{filename}_boxplot.png"
         fig.savefig(path, dpi=300)
         figure_paths.append(path)
-        plt.close(fig)
 
     return {
         "summary_path": output_path,
         "per_question_paths": figure_paths,
-        "figures": [g.fig],
     }
 
 
