@@ -8,7 +8,7 @@ A conversation system that integrates heart rate monitoring with speech prosody 
 
 ## 📥 ダウンロード / Download
 
-### 最新版 (v7.6.0)
+### 最新版 (v7.10.0)
 
 **方法1: スタンドアロンアプリ (推奨)**
 
@@ -540,6 +540,9 @@ MIT License
 
 ## 📝 Version History
 
+- **v7.10.0** - ECG data validation at conversation start (warns if H10 ECG not recording)
+- **v7.9.0** - Battery level display for Polar sensors (Verity Sense & H10)
+- **v7.8.0** - H10 heart rate fallback when Verity Sense connection lost, connection status display (接続断/H10代替/HR断/ECG断)
 - **v7.6.0** - Robust control rewritten using MEC (Model Error Compensation), stability verification added
 - **v7.5.0** - Realtime monitor always shows target HR line with legend
 - **v7.4.1** - ECG analysis partial condition support, matplotlib thread-safe backend fix

@@ -2709,6 +2709,48 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         self.processing_thread.start()
         self.is_processing = False
 
+        # 会話開始後にECGデータ受信を確認（3秒後）
+        if self.h10_monitor and self.h10_monitor.is_connected:
+            self.after(3000, self._check_ecg_data_after_start)
+
+    def _check_ecg_data_after_start(self) -> None:
+        """会話開始後にECGデータが正しく受信されているかを確認する。
+
+        H10が接続されているにもかかわらずECGデータが受信されていない場合、
+        警告ダイアログを表示してユーザーに通知する。
+        """
+        if not self.is_conversing:
+            # 会話が既に停止している場合は確認不要
+            return
+
+        if not self.h10_monitor or not self.h10_monitor.is_connected:
+            return
+
+        if not self.h10_monitor.is_receiving_ecg_data():
+            # ECGデータが受信されていない
+            self._log_to_console("警告: H10からECGデータが受信されていません！")
+            warning_msg = (
+                "H10は接続されていますが、ECGデータが受信されていません。\n\n"
+                "考えられる原因:\n"
+                "• H10が胸に正しく装着されていない\n"
+                "• H10のストラップが乾燥している（水で濡らしてください）\n"
+                "• H10の電極部分が肌に密着していない\n\n"
+                "ECGデータがないまま会話を続けると、\n"
+                "ECGログファイルが空になります。\n\n"
+                "会話を停止してH10を確認しますか？"
+            )
+            response = messagebox.askyesno(
+                "ECGデータ受信エラー",
+                warning_msg,
+                icon="warning"
+            )
+            if response:
+                # ユーザーが「はい」を選択した場合、会話を停止
+                self.stop_conversation()
+        else:
+            ecg_buffer_size = len(self.h10_monitor.get_ecg_buffer())
+            self._log_to_console(f"ECGデータ受信確認: OK ({ecg_buffer_size} サンプル)")
+
     def stop_conversation(self, called_from_close_signal: bool = False) -> None:
         if not self.is_conversing:
             if not called_from_close_signal: self._log_to_console("会話は実行されていません。")

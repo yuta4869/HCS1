@@ -553,6 +553,21 @@ class H10Monitor:
         elapsed = (datetime.datetime.now() - self.last_ecg_timestamp).total_seconds()
         return elapsed > self.connection_timeout_seconds
 
+    def is_receiving_ecg_data(self, min_samples: int = 10) -> bool:
+        """ECGデータが受信されているかを確認する。
+
+        Args:
+            min_samples: 受信中と判断するための最小サンプル数
+
+        Returns:
+            True: ECGデータを受信中
+            False: ECGデータを受信していない
+        """
+        with self.ecg_lock:
+            has_data = len(self.ecg_buffer) >= min_samples
+        is_fresh = not self.is_ecg_data_stale()
+        return has_data and is_fresh
+
     def get_ecg_buffer(self) -> List[float]:
         """リアルタイム表示用ECGバッファを取得（コピーを返す）"""
         with self.ecg_lock:
