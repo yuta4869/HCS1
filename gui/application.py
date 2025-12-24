@@ -233,6 +233,10 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         self._setup_timeseries_analysis_tab()
         self._setup_questionnaire_tab()
 
+        # マウスホイールスクロールと右クリックメニューのセットアップ
+        self._setup_mousewheel_scroll()
+        self._setup_right_click_menu()
+
     def _setup_conversation_tab(self) -> None:
         """会話システムタブのUIを構築"""
         # スクロール可能なフレームを作成
@@ -241,31 +245,27 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         tab_frame.rowconfigure(0, weight=1)
 
         # Canvas + Scrollbar
-        canvas = tk.Canvas(tab_frame, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
+        self._conversation_canvas = tk.Canvas(tab_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=self._conversation_canvas.yview)
+        self._conversation_canvas.configure(yscrollcommand=scrollbar.set)
 
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._conversation_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # スクロール可能なメインフレーム
-        main_frame = ttk.Frame(canvas, padding="10")
-        canvas_window = canvas.create_window((0, 0), window=main_frame, anchor="nw")
+        main_frame = ttk.Frame(self._conversation_canvas, padding="10")
+        canvas_window = self._conversation_canvas.create_window((0, 0), window=main_frame, anchor="nw")
 
         def configure_scroll_region(event):
-            canvas.configure(scrollregion=canvas.bbox("all"))
+            self._conversation_canvas.configure(scrollregion=self._conversation_canvas.bbox("all"))
 
         def configure_canvas_width(event):
-            canvas.itemconfig(canvas_window, width=event.width)
+            self._conversation_canvas.itemconfig(canvas_window, width=event.width)
 
         main_frame.bind("<Configure>", configure_scroll_region)
-        canvas.bind("<Configure>", configure_canvas_width)
+        self._conversation_canvas.bind("<Configure>", configure_canvas_width)
 
-        # マウスホイールでスクロール
-        def on_mousewheel(event):
-            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-
-        canvas.bind_all("<MouseWheel>", on_mousewheel)
+        # マウスホイールスクロールは _setup_mousewheel_scroll() で一括設定
 
         main_frame.columnconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
@@ -3097,6 +3097,110 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             if self.is_conversing:
                 self.stop_conversation(called_from_close_signal=self._closing)
             self._log_to_console("会話ループスレッド クリーンアップ完了。")
+
+    def _setup_mousewheel_scroll(self) -> None:
+        """マウスホイール/トラックパッドによるスクロールをプラットフォーム対応で設定"""
+        platform = sys.platform
+
+        def _on_mousewheel(event, canvas):
+            """マウスホイールイベントを処理"""
+            if platform == "darwin":
+                # macOS: deltaは1または-1
+                canvas.yview_scroll(int(-1 * event.delta), "units")
+            else:
+                # Windows: deltaは120の倍数
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def _on_scroll_up(event, canvas):
+            """Linux用: スクロールアップ (Button-4)"""
+            canvas.yview_scroll(-3, "units")
+
+        def _on_scroll_down(event, canvas):
+            """Linux用: スクロールダウン (Button-5)"""
+            canvas.yview_scroll(3, "units")
+
+        # 会話システムタブのCanvas
+        if hasattr(self, '_conversation_canvas'):
+            canvas = self._conversation_canvas
+
+            if platform == "linux" or platform.startswith("linux"):
+                # Linux: Button-4/Button-5
+                canvas.bind_all("<Button-4>", lambda e: _on_scroll_up(e, canvas))
+                canvas.bind_all("<Button-5>", lambda e: _on_scroll_down(e, canvas))
+            else:
+                # macOS / Windows: MouseWheel
+                canvas.bind_all("<MouseWheel>", lambda e: _on_mousewheel(e, canvas))
+
+    def _setup_right_click_menu(self) -> None:
+        """右クリックコンテキストメニューをプラットフォーム対応で設定"""
+        platform = sys.platform
+
+        # コンテキストメニューを作成
+        self._context_menu = tk.Menu(self, tearoff=0)
+        self._context_menu.add_command(label="切り取り", command=self._cut_text)
+        self._context_menu.add_command(label="コピー", command=self._copy_text)
+        self._context_menu.add_command(label="貼り付け", command=self._paste_text)
+        self._context_menu.add_separator()
+        self._context_menu.add_command(label="すべて選択", command=self._select_all_text)
+
+        def show_context_menu(event):
+            """コンテキストメニューを表示"""
+            widget = event.widget
+            # Entry, Text, ScrolledText ウィジェットでのみメニューを表示
+            if isinstance(widget, (tk.Entry, tk.Text, scrolledtext.ScrolledText, ttk.Entry)):
+                self._context_menu_target = widget
+                try:
+                    self._context_menu.tk_popup(event.x_root, event.y_root)
+                finally:
+                    self._context_menu.grab_release()
+
+        # プラットフォームに応じた右クリックバインド
+        if platform == "darwin":
+            # macOS: Button-2 または Control+Button-1
+            self.bind_all("<Button-2>", show_context_menu)
+            self.bind_all("<Control-Button-1>", show_context_menu)
+        else:
+            # Linux / Windows: Button-3
+            self.bind_all("<Button-3>", show_context_menu)
+
+    def _cut_text(self) -> None:
+        """選択テキストを切り取り"""
+        if hasattr(self, '_context_menu_target') and self._context_menu_target:
+            widget = self._context_menu_target
+            try:
+                widget.event_generate("<<Cut>>")
+            except tk.TclError:
+                pass
+
+    def _copy_text(self) -> None:
+        """選択テキストをコピー"""
+        if hasattr(self, '_context_menu_target') and self._context_menu_target:
+            widget = self._context_menu_target
+            try:
+                widget.event_generate("<<Copy>>")
+            except tk.TclError:
+                pass
+
+    def _paste_text(self) -> None:
+        """クリップボードからテキストを貼り付け"""
+        if hasattr(self, '_context_menu_target') and self._context_menu_target:
+            widget = self._context_menu_target
+            try:
+                widget.event_generate("<<Paste>>")
+            except tk.TclError:
+                pass
+
+    def _select_all_text(self) -> None:
+        """テキストをすべて選択"""
+        if hasattr(self, '_context_menu_target') and self._context_menu_target:
+            widget = self._context_menu_target
+            try:
+                if isinstance(widget, (tk.Text, scrolledtext.ScrolledText)):
+                    widget.tag_add("sel", "1.0", "end")
+                elif isinstance(widget, (tk.Entry, ttk.Entry)):
+                    widget.select_range(0, tk.END)
+            except tk.TclError:
+                pass
 
     def signal_handler(self, sig, frame):
         print(f"\nシグナル {sig} 受信。アプリケーションを終了します...")
