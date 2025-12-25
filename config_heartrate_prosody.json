@@ -1,5 +1,5 @@
 {
-    "reference_hr": 93,
+    "reference_hr": 71,
     "prosody": {
         "intonation": 1.0,
         "pitch": 0.0,
@@ -12,11 +12,11 @@
     "speaker_id": 2,
     "baseline_measurement_duration": 180,
     "hrf2": {
-        "kp": 0.1,
+        "kp": 0.13,
         "ki": 0.01,
         "kd": 0.0,
-        "target_hr": 102.3,
-        "control_mode": "Adaptive",
+        "target_hr": 78.0,
+        "control_mode": "PID",
         "gain_schedule": {
             "error_threshold_high": 15.0,
             "error_threshold_medium": 7.0,
