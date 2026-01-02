@@ -83,22 +83,35 @@ class TimeseriesAnalysisMixin:
         )
         ttk.Label(param_frame, text="(0で非表示)").grid(row=0, column=4, sticky="w", padx=5, pady=5)
 
+        # 解析区間
+        ttk.Label(param_frame, text="解析区間:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        time_range_frame = ttk.Frame(param_frame)
+        time_range_frame.grid(row=1, column=1, columnspan=4, sticky="w", padx=5, pady=5)
+
+        ttk.Label(time_range_frame, text="開始").pack(side=tk.LEFT)
+        self.ts_start_time_var = tk.StringVar(value="")
+        ttk.Entry(time_range_frame, textvariable=self.ts_start_time_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(time_range_frame, text="秒 〜 終了").pack(side=tk.LEFT)
+        self.ts_end_time_var = tk.StringVar(value="")
+        ttk.Entry(time_range_frame, textvariable=self.ts_end_time_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(time_range_frame, text="秒 (空欄で全区間)").pack(side=tk.LEFT)
+
         # グラフオプション
         self.ts_show_reference_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(param_frame, text="基準心拍数ラインを表示",
-                        variable=self.ts_show_reference_var).grid(row=1, column=0, columnspan=2, sticky="w", padx=5, pady=5)
+                        variable=self.ts_show_reference_var).grid(row=2, column=0, columnspan=2, sticky="w", padx=5, pady=5)
 
         self.ts_show_target_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(param_frame, text="目標心拍数ラインを表示",
-                        variable=self.ts_show_target_var).grid(row=1, column=2, columnspan=2, sticky="w", padx=5, pady=5)
+                        variable=self.ts_show_target_var).grid(row=2, column=2, columnspan=2, sticky="w", padx=5, pady=5)
 
         self.ts_generate_combined_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(param_frame, text="全条件統合グラフも生成",
-                        variable=self.ts_generate_combined_var).grid(row=2, column=0, columnspan=2, sticky="w", padx=5, pady=5)
+                        variable=self.ts_generate_combined_var).grid(row=3, column=0, columnspan=2, sticky="w", padx=5, pady=5)
 
         self.ts_show_speech_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(param_frame, text="発言時間帯を色付け表示",
-                        variable=self.ts_show_speech_var).grid(row=2, column=2, columnspan=2, sticky="w", padx=5, pady=5)
+                        variable=self.ts_show_speech_var).grid(row=3, column=2, columnspan=2, sticky="w", padx=5, pady=5)
 
         # --- 実行ボタン ---
         btn_frame = ttk.Frame(main_frame)
@@ -177,6 +190,32 @@ class TimeseriesAnalysisMixin:
         show_target = self.ts_show_target_var.get() and target_hr > 0
         generate_combined = self.ts_generate_combined_var.get()
 
+        # 解析区間パラメータ取得
+        start_time_str = self.ts_start_time_var.get().strip()
+        end_time_str = self.ts_end_time_var.get().strip()
+        start_time: Optional[float] = None
+        end_time: Optional[float] = None
+
+        if start_time_str:
+            try:
+                start_time = float(start_time_str)
+                self._ts_log(f"解析開始時間: {start_time}秒")
+            except ValueError:
+                messagebox.showerror("エラー", "開始時間には数値を入力してください。")
+                return
+
+        if end_time_str:
+            try:
+                end_time = float(end_time_str)
+                self._ts_log(f"解析終了時間: {end_time}秒")
+            except ValueError:
+                messagebox.showerror("エラー", "終了時間には数値を入力してください。")
+                return
+
+        if start_time is not None and end_time is not None and start_time >= end_time:
+            messagebox.showerror("エラー", "開始時間は終了時間より小さくしてください。")
+            return
+
         # 解析結果ファイルを検索
         result_files = self._ts_find_result_files(input_folder)
 
@@ -198,7 +237,13 @@ class TimeseriesAnalysisMixin:
             try:
                 df = pd.read_excel(filepath)
                 if 'Time' in df.columns:
-                    condition_data[condition] = df
+                    # 時間範囲でフィルタリング
+                    df_filtered = self._ts_filter_by_time(df, 'Time', start_time, end_time)
+                    if len(df_filtered) > 0:
+                        condition_data[condition] = df_filtered
+                        self._ts_log(f"  データ点数: {len(df_filtered)} (元: {len(df)})")
+                    else:
+                        self._ts_log(f"  警告: フィルタリング後のデータが空です。スキップします。")
                 else:
                     self._ts_log(f"  警告: Time列がありません。スキップします。")
             except Exception as e:
@@ -246,7 +291,8 @@ class TimeseriesAnalysisMixin:
             self._ts_generate_hr_session_graphs(
                 hr_session_files, output_folder,
                 reference_hr, target_hr, show_reference, show_target,
-                show_speech=show_speech
+                show_speech=show_speech,
+                start_time=start_time, end_time=end_time
             )
         else:
             self._ts_log("HRセッションファイル (h10_hr_session_*.csv, verity_hr_session_*.csv) は見つかりませんでした。")
@@ -294,6 +340,35 @@ class TimeseriesAnalysisMixin:
             if condition_lower == standard_cond.lower():
                 return standard_cond
         return condition
+
+    def _ts_filter_by_time(
+        self,
+        df: pd.DataFrame,
+        time_column: str,
+        start_time: Optional[float],
+        end_time: Optional[float]
+    ) -> pd.DataFrame:
+        """DataFrameを時間範囲でフィルタリング
+
+        Args:
+            df: 元のDataFrame
+            time_column: 時間列の名前
+            start_time: 開始時間（秒）。Noneの場合は最初から
+            end_time: 終了時間（秒）。Noneの場合は最後まで
+
+        Returns:
+            フィルタリング後のDataFrame
+        """
+        if start_time is None and end_time is None:
+            return df
+
+        mask = pd.Series([True] * len(df))
+        if start_time is not None:
+            mask &= df[time_column] >= start_time
+        if end_time is not None:
+            mask &= df[time_column] <= end_time
+
+        return df[mask].copy()
 
     def _ts_generate_condition_graphs(
         self,
@@ -373,6 +448,10 @@ class TimeseriesAnalysisMixin:
             self._ts_plot_speech_intervals(ax, speech_intervals, y_min, y_max)
 
         ax.plot(time_data, value_data, color=color, linewidth=1.5, label=ylabel)
+
+        # X軸範囲をデータの範囲に設定
+        if len(time_data) > 0:
+            ax.set_xlim(np.nanmin(time_data), np.nanmax(time_data))
 
         # 基準心拍数ライン
         if reference_line is not None and reference_line > 0:
@@ -461,20 +540,31 @@ class TimeseriesAnalysisMixin:
         """統合グラフを生成"""
         fig, ax = plt.subplots(figsize=(12, 6))
 
+        # 全条件の時間範囲を収集
+        all_times = []
+
         # 条件順序に従ってプロット
         for condition in ANALYS_CONDITION_ORDER:
             if condition in condition_data:
                 df = condition_data[condition]
                 if column in df.columns:
                     color = CONDITION_COLORS.get(condition, '#666666')
-                    ax.plot(df['Time'].values, df[column].values,
+                    time_vals = df['Time'].values
+                    ax.plot(time_vals, df[column].values,
                             color=color, linewidth=1.5, label=condition)
+                    all_times.extend(time_vals)
 
         # 残りの条件（標準順序にないもの）
         for condition, df in condition_data.items():
             if condition not in ANALYS_CONDITION_ORDER and column in df.columns:
-                ax.plot(df['Time'].values, df[column].values,
+                time_vals = df['Time'].values
+                ax.plot(time_vals, df[column].values,
                         linewidth=1.5, label=condition)
+                all_times.extend(time_vals)
+
+        # X軸範囲をデータの範囲に設定
+        if all_times:
+            ax.set_xlim(np.nanmin(all_times), np.nanmax(all_times))
 
         # 基準心拍数ライン
         if reference_line is not None and reference_line > 0:
@@ -547,7 +637,9 @@ class TimeseriesAnalysisMixin:
         target_hr: float,
         show_reference: bool,
         show_target: bool,
-        show_speech: bool = False
+        show_speech: bool = False,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None
     ) -> None:
         """HRセッションファイルからHRグラフを生成"""
         for filepath, device_type, subject_id, timestamp, mode in hr_files:
@@ -568,15 +660,30 @@ class TimeseriesAnalysisMixin:
                 # タイムスタンプから経過時間（秒）を計算
                 try:
                     timestamps = pd.to_datetime(df['Timestamp'])
-                    start_time = timestamps.iloc[0]
-                    elapsed_seconds = (timestamps - start_time).dt.total_seconds().values
+                    data_start_time = timestamps.iloc[0]
+                    elapsed_seconds = (timestamps - data_start_time).dt.total_seconds().values
                 except Exception as e:
                     self._ts_log(f"  警告: タイムスタンプ解析失敗: {e}")
                     # インデックスを使用
                     elapsed_seconds = np.arange(len(df))
-                    start_time = None
+                    data_start_time = None
 
                 hr_values = df['Heart Rate (BPM)'].values
+
+                # 時間範囲でフィルタリング
+                if start_time is not None or end_time is not None:
+                    mask = np.ones(len(elapsed_seconds), dtype=bool)
+                    if start_time is not None:
+                        mask &= elapsed_seconds >= start_time
+                    if end_time is not None:
+                        mask &= elapsed_seconds <= end_time
+                    elapsed_seconds = elapsed_seconds[mask]
+                    hr_values = hr_values[mask]
+                    self._ts_log(f"  データ点数: {len(elapsed_seconds)} (フィルタリング後)")
+
+                    if len(elapsed_seconds) == 0:
+                        self._ts_log(f"  警告: フィルタリング後のデータが空です。スキップします。")
+                        continue
 
                 # 条件名（mode）を正規化
                 mode_normalized = self._ts_normalize_condition(mode)
@@ -588,7 +695,7 @@ class TimeseriesAnalysisMixin:
                     conv_log_path = self._ts_find_conversation_log(input_folder, subject_id, mode_normalized)
                     if conv_log_path:
                         self._ts_log(f"  発言ログ: {os.path.basename(conv_log_path)}")
-                        speech_intervals = self._ts_load_speech_intervals(conv_log_path, start_time)
+                        speech_intervals = self._ts_load_speech_intervals(conv_log_path, data_start_time)
                         self._ts_log(f"    -> {len(speech_intervals)}件の発言を検出")
 
                 # グラフ生成
