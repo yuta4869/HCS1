@@ -81,15 +81,10 @@ class HeartRateMonitor:
         self.session_timestamp = session_timestamp
         self.session_mode = mode
 
-    def initialize_hr_prosody_csv(self) -> None:
+    def initialize_hr_prosody_csv(self, filepath: str) -> None:
         """Stores the intended path for the HR/Prosody log and signals logger thread."""
         try:
-            self.hr_prosody_filepath = get_timestamped_log_path(
-                config.HR_PROSODY_CSV_TEMPLATE,
-                subject_id=self.subject_id,
-                session_timestamp=self.session_timestamp,
-                mode=self.session_mode or "Unknown"
-            )
+            self.hr_prosody_filepath = filepath
             header = ["Timestamp", "Heart Rate (BPM)", "Prosody Level Applied", "Reference HR"]
             self.log_queue.put(("add_handler", config.LOGGER_HR_PROSODY, self.hr_prosody_filepath, header))
             print(f"HR and Prosody log (Verity) ready: {self.hr_prosody_filepath}")
@@ -373,7 +368,6 @@ class HeartRateMonitor:
 
             if self.client.is_connected:
                 print(f"Connected to {config.POLAR_VERITY_SENSE_NAME}: {self.device.address}")
-                self.initialize_hr_prosody_csv() # Initialize log for this connection session
                 await self.client.start_notify(config.HR_CHARACTERISTIC_UUID, self.hr_notification_handler)
                 print("Started receiving heart rate data (Verity)")
 

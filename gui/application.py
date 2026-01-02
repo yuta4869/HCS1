@@ -1952,6 +1952,16 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                 self.hr_monitor.initialize_verity_hr_session_csv(verity_hr_path)
                 log_files_initialized_names.append("Verity HRセッション")
             except Exception as e_vhr_init: print(f"Verity HRセッションログ初期化エラー: {e_vhr_init}")
+            try:
+                hr_prosody_path = get_timestamped_log_path(
+                    config.HR_PROSODY_CSV_TEMPLATE,
+                    self.current_session_timestamp,
+                    self.current_session_mode,
+                    subject_id=subject_id
+                )
+                self.hr_monitor.initialize_hr_prosody_csv(hr_prosody_path)
+                log_files_initialized_names.append("Verity HR Prosody")
+            except Exception as e_hrp_init: print(f"Verity HR Prosodyログ初期化エラー: {e_hrp_init}")
 
         if self.h10_monitor.is_connected:
             try:
