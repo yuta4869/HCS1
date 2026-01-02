@@ -167,56 +167,184 @@ python3 main.py
 
 保存されたECGデータからHRV指標を計算します。
 
-**ファイル命名規則:**
-ECGファイルは以下の形式で命名してください:
+**入力ファイル命名規則:**
+ECGファイルは以下の形式で自動認識されます:
 ```
-{被験者ID}_{条件名}.csv
-例: S01_No.csv, S01_MRAC.csv, S02_PID.csv
+h10_ecg_session_No{被験者番号}_{日付}_{時刻}_{条件名}.csv
+例: h10_ecg_session_No1_20251225_143000_HRF2_PID.csv
 ```
 
 **対応する条件名:**
-- `No` - 制御なし
-- `PID` - PID制御
-- `MRAC` - 適応制御
-- `GainSchedule` - ゲインスケジューリング制御
+| 条件名 | 説明 |
+|--------|------|
+| `Fixed` | 固定韻律（制御なし） |
+| `HRF` | 心拍数フィードバック（旧方式） |
+| `Sin` | 正弦波韻律変調 |
+| `HRF2_PID` | HRF2 PID制御 |
+| `HRF2_Adaptive` | HRF2 適応制御（MRAC） |
+| `HRF2_GS` | HRF2 ゲインスケジューリング |
+| `HRF2_Robust` | HRF2 ロバスト制御（MEC） |
+
+**解析パラメータ（GUI設定可能）:**
+| パラメータ | デフォルト値 | 説明 |
+|-----------|-------------|------|
+| センサーサンプルレート | 130 Hz | Polar H10のECGサンプリングレート |
+| リサンプリング周波数 | 1.0 Hz | RRI等間隔化後のレート |
+| 分位点フィルタ（下限） | 3.8%ile | 異常値除去の下限 |
+| 分位点フィルタ（上限） | 96.2%ile | 異常値除去の上限 |
+| 最小心拍数 | 45 BPM | 生理学的下限 |
+| 最大心拍数 | 210 BPM | 生理学的上限 |
+| 解析ウィンドウ | 30秒 | スライディングウィンドウ幅 |
+| 解析開始オフセット | 30秒 | データ開始からの除外時間 |
+| 解析終了オフセット | 5分30秒 | 解析終了時刻 |
 
 **使い方:**
 1. 「ECG/HRV解析」タブに移動
 2. 「入力フォルダを選択」でECGファイルが入ったフォルダを選択
-3. 「出力フォルダを選択」で結果の保存先を選択
-4. 「バッチ解析 実行」をクリック
+3. 解析する条件にチェック（デフォルトで全条件選択）
+4. 必要に応じて詳細パラメータを調整
+5. 「バッチ解析 実行」をクリック
 
 **出力される解析結果:**
-- `{条件名}_result.xlsx` - 時系列のLF/HF・RMSSD（30秒スライディングウィンドウ）
-- `{条件名}_resultLFHF5min.xlsx` - 全体平均LF/HF
-- `Combined_HRV_Analysis.xlsx` - 全条件の統合結果
-- `LFHF_Boxplot.png` - LF/HFの箱ひげ図
-- `RMSSD_Boxplot.png` - RMSSDの箱ひげ図
+| ファイル名 | 内容 |
+|-----------|------|
+| `{被験者ID}_{条件}_result.xlsx` | 時系列LF/HF・RMSSD・SDNN（30秒スライディングウィンドウ） |
+| `{被験者ID}_{条件}_resultLFHF5min.xlsx` | 全体平均LF/HF |
+| `{被験者ID}_Combined_HRV_Analysis.xlsx` | 全条件統合結果 |
+| `LFHF_Boxplot.png` | LF/HF箱ひげ図 |
+| `RMSSD_Boxplot.png` | RMSSD箱ひげ図 |
+| `SDNN_Boxplot.png` | SDNN箱ひげ図 |
 
 **複数被験者の統合解析:**
-1. 各被験者の解析結果フォルダを用意（例: `S01/`, `S02/`）
+1. 各被験者の解析結果フォルダを用意（例: `No1/`, `No2/`）
 2. 「被験者データフォルダを選択」で親フォルダを選択
 3. 「複数被験者の統合グラフ作成」をクリック
 4. 条件ごとの比較グラフが生成されます
 
+#### 時系列解析
+
+HRセッションファイルからHR/RMSSD/SDNNの時系列グラフを生成します。
+
+**入力ファイル:**
+- `{被験者ID}_{条件}_result.xlsx` - ECG/HRV解析の出力ファイル
+- `verity_hr_session_*.csv` - Verity Sense心拍数ログ
+- `h10_hr_session_*.csv` - H10心拍数ログ
+- `conversation_log_*.csv` - 会話ログ（発言時間帯表示用）
+
+**グラフオプション（GUI設定）:**
+| オプション | デフォルト | 説明 |
+|-----------|-----------|------|
+| 基準心拍数 | 0 (非表示) | 緑の点線で表示 |
+| 目標心拍数 | 0 (非表示) | 青の一点鎖線で表示 |
+| 基準心拍数ラインを表示 | ON | 基準HRライン表示 |
+| 目標心拍数ラインを表示 | ON | 目標HRライン表示（値が0より大きい場合のみ） |
+| 全条件統合グラフも生成 | ON | Combined グラフを生成 |
+| 発言時間帯を色付け表示 | ON | 会話ログから発言区間を背景色で表示 |
+
+**目標心拍数ラインについて:**
+- 「目標心拍数 (BPM)」に値を入力すると、グラフに目標ラインが表示されます
+- 0の場合は非表示になります
+- HRF2制御で使用した目標心拍数を入力してください
+
+**出力グラフ:**
+| ファイル名 | 内容 |
+|-----------|------|
+| `{被験者ID}_{条件}_RMSSD.png` | 条件別RMSSDグラフ |
+| `{被験者ID}_{条件}_SDNN.png` | 条件別SDNNグラフ |
+| `{被験者ID}_{条件}_H10_HR.png` | H10心拍数グラフ |
+| `{被験者ID}_{条件}_Verity_HR.png` | Verity心拍数グラフ |
+| `{被験者ID}_Combined_RMSSD.png` | 全条件統合RMSSDグラフ |
+| `{被験者ID}_Combined_SDNN.png` | 全条件統合SDNNグラフ |
+
 #### アンケート解析
 
-アンケートデータの統計解析とグラフ作成を行います。
+アンケートデータの統計解析とグラフ作成を行います。**独自アンケート**と**PANAS**の2種類に対応しています。
 
-**ファイル形式:**
-Excelファイル（.xlsx）に以下の形式でデータを入力:
-- 1行目: ヘッダー（質問項目名）
-- 条件名を含む列名（例: `No_Q1`, `PID_Q1`, `MRAC_Q1`）
+**入力ファイル形式（Excel .xlsx）:**
+
+```
+┌─────┬─────────┬───────┬───────┬───────┬───────┬─────────────┐
+│  A  │    B    │   C   │   D   │   E   │  ...  │     Z〜     │
+├─────┼─────────┼───────┼───────┼───────┼───────┼─────────────┤
+│ No  │ 被験者ID │ 条件  │ Q1    │ Q2    │  ...  │ PANAS項目   │
+├─────┼─────────┼───────┼───────┼───────┼───────┼─────────────┤
+│  1  │    1    │   1   │   4   │   3   │  ...  │     5       │
+│  2  │    1    │   4   │   5   │   4   │  ...  │     3       │
+│  3  │    2    │   1   │   3   │   4   │  ...  │     4       │
+└─────┴─────────┴───────┴───────┴───────┴───────┴─────────────┘
+```
+
+| 列 | 内容 | 備考 |
+|----|------|------|
+| A列 | 行番号 | 任意 |
+| B列 | 被験者ID | 数値または文字列 |
+| C列 | 条件番号 | 1-7の番号または条件名 |
+| D列〜 | アンケート回答 | リッカート尺度等 |
+
+**条件番号マッピング:**
+| 番号 | 条件名 |
+|------|--------|
+| 1 | Fixed |
+| 2 | HRF |
+| 3 | Sin |
+| 4 | HRF2_PID |
+| 5 | HRF2_Adaptive |
+| 6 | HRF2_GS |
+| 7 | HRF2_Robust |
+
+**列範囲の指定:**
+- **独自アンケート**: デフォルト D列〜Y列
+- **PANAS**: デフォルト Z列〜AO列
+
+Excel列文字（A, B, ..., Z, AA, AB, ...）で任意の範囲を指定できます。
+
+**独自アンケート解析:**
+1. 「アンケート解析」タブに移動
+2. 「Excelファイルを選択」でファイルを選択
+3. 解析する条件にチェック
+4. 列範囲を確認（必要に応じて変更）
+5. 「独自アンケート解析 実行」をクリック
+
+**出力:**
+```
+{入力フォルダ}/
+├── question_boxplots_grid.png      # 全設問グリッド表示
+└── question_boxplots/              # 個別グラフフォルダ
+    ├── Q1_設問名_boxplot.png
+    ├── Q2_設問名_boxplot.png
+    └── ...
+```
+
+**PANAS解析:**
+
+日本語版PANAS（Positive and Negative Affect Schedule）の解析機能です。
+
+**PANAS項目（16項目）:**
+- **PA（ポジティブ情動）8項目**: 活気のある、誇らしい、強気な、きっぱりとした、気合いの入った、わくわくした、機敏な、熱狂した
+- **NA（ネガティブ情動）8項目**: びくびくした、おびえた、うろたえた、心配した、ぴりぴりした、苦悩した、恥じた、いらだった
+
+**得点範囲**: 各項目1〜6点（6件法）、PA/NA合計 8〜48点
 
 **使い方:**
 1. 「アンケート解析」タブに移動
-2. 「アンケートファイルを選択」でExcelファイルを選択
-3. 「出力フォルダを選択」で保存先を選択
-4. 「解析 & グラフ作成」をクリック
+2. 「Excelファイルを選択」でファイルを選択
+3. 列範囲を確認（デフォルト: Z列〜AO列）
+4. 「PANAS解析 実行」をクリック
 
-**出力されるグラフ:**
-- 条件ごとの比較棒グラフ
-- エラーバー付きの統計グラフ
+**出力:**
+```
+{入力フォルダ}/PANAS_analysis/
+├── PANAS_boxplot.png       # PA/NA箱ひげ図（並列表示）
+├── PANAS_barplot.png       # PA/NA棒グラフ（平均±SD）
+└── PANAS_results.xlsx      # 統計結果
+    ├── 条件別統計シート    # n, 平均, SD, 中央値
+    ├── 内的一貫性シート    # α係数, ω係数
+    └── 個人データシート    # Subject, Condition, PA_Score, NA_Score
+```
+
+**信頼性係数:**
+- クロンバックのα係数
+- McDonald's ω係数（簡易版）
 
 #### ログファイル
 
@@ -394,56 +522,196 @@ python3 main.py
 
 Calculate HRV indices from saved ECG data.
 
-**File Naming Convention:**
-ECG files should be named as follows:
+**Input File Naming Convention:**
+ECG files are automatically recognized in the following format:
 ```
-{SubjectID}_{ConditionName}.csv
-Example: S01_No.csv, S01_MRAC.csv, S02_PID.csv
+h10_ecg_session_No{SubjectNumber}_{Date}_{Time}_{ConditionName}.csv
+Example: h10_ecg_session_No1_20251225_143000_HRF2_PID.csv
 ```
 
 **Supported Condition Names:**
-- `No` - No control
-- `PID` - PID control
-- `MRAC` - Adaptive control
-- `GainSchedule` - Gain scheduling control
+| Condition | Description |
+|-----------|-------------|
+| `Fixed` | Fixed prosody (no control) |
+| `HRF` | Heart rate feedback (legacy) |
+| `Sin` | Sinusoidal prosody modulation |
+| `HRF2_PID` | HRF2 PID control |
+| `HRF2_Adaptive` | HRF2 Adaptive control (MRAC) |
+| `HRF2_GS` | HRF2 Gain scheduling |
+| `HRF2_Robust` | HRF2 Robust control (MEC) |
+
+**Analysis Parameters (GUI configurable):**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| Sensor sample rate | 130 Hz | Polar H10 ECG sampling rate |
+| Resampling frequency | 1.0 Hz | Rate after RRI interpolation |
+| Quantile filter (low) | 3.8%ile | Lower outlier threshold |
+| Quantile filter (high) | 96.2%ile | Upper outlier threshold |
+| Min heart rate | 45 BPM | Physiological lower bound |
+| Max heart rate | 210 BPM | Physiological upper bound |
+| Analysis window | 30 sec | Sliding window width |
+| Analysis start offset | 30 sec | Exclusion from data start |
+| Analysis end offset | 5m 30s | Analysis end time |
 
 **Usage:**
 1. Go to "ECG/HRV Analysis" tab
 2. Click "Select Input Folder" to choose folder containing ECG files
-3. Click "Select Output Folder" to choose where results will be saved
-4. Click "Run Batch Analysis"
+3. Check conditions to analyze (all selected by default)
+4. Adjust detailed parameters if needed
+5. Click "Run Batch Analysis"
 
 **Output Files:**
-- `{ConditionName}_result.xlsx` - Time series LF/HF & RMSSD (30-sec sliding window)
-- `{ConditionName}_resultLFHF5min.xlsx` - Overall average LF/HF
-- `Combined_HRV_Analysis.xlsx` - Combined results for all conditions
-- `LFHF_Boxplot.png` - LF/HF box plot
-- `RMSSD_Boxplot.png` - RMSSD box plot
+| Filename | Content |
+|----------|---------|
+| `{SubjectID}_{Condition}_result.xlsx` | Time series LF/HF, RMSSD, SDNN (30-sec sliding window) |
+| `{SubjectID}_{Condition}_resultLFHF5min.xlsx` | Overall average LF/HF |
+| `{SubjectID}_Combined_HRV_Analysis.xlsx` | Combined results for all conditions |
+| `LFHF_Boxplot.png` | LF/HF box plot |
+| `RMSSD_Boxplot.png` | RMSSD box plot |
+| `SDNN_Boxplot.png` | SDNN box plot |
 
 **Multi-Subject Integration:**
-1. Prepare analysis result folders for each subject (e.g., `S01/`, `S02/`)
+1. Prepare analysis result folders for each subject (e.g., `No1/`, `No2/`)
 2. Click "Select Subject Data Folder" to choose the parent folder
 3. Click "Create Multi-Subject Integrated Graphs"
 4. Comparison graphs by condition are generated
 
+#### Timeseries Analysis
+
+Generate HR/RMSSD/SDNN time series graphs from HR session files.
+
+**Input Files:**
+- `{SubjectID}_{Condition}_result.xlsx` - ECG/HRV analysis output
+- `verity_hr_session_*.csv` - Verity Sense heart rate log
+- `h10_hr_session_*.csv` - H10 heart rate log
+- `conversation_log_*.csv` - Conversation log (for speech interval display)
+
+**Graph Options (GUI settings):**
+| Option | Default | Description |
+|--------|---------|-------------|
+| Reference HR | 0 (hidden) | Shown as green dashed line |
+| Target HR | 0 (hidden) | Shown as blue dash-dot line |
+| Show reference HR line | ON | Display reference HR line |
+| Show target HR line | ON | Display target HR line (only if value > 0) |
+| Generate combined graphs | ON | Generate Combined graphs |
+| Show speech intervals | ON | Highlight speech intervals from conversation log |
+
+**About Target HR Line:**
+- Enter a value in "Target HR (BPM)" to display the target line on graphs
+- Set to 0 to hide
+- Enter the target HR used in HRF2 control
+
+**Output Graphs:**
+| Filename | Content |
+|----------|---------|
+| `{SubjectID}_{Condition}_RMSSD.png` | RMSSD graph by condition |
+| `{SubjectID}_{Condition}_SDNN.png` | SDNN graph by condition |
+| `{SubjectID}_{Condition}_H10_HR.png` | H10 heart rate graph |
+| `{SubjectID}_{Condition}_Verity_HR.png` | Verity heart rate graph |
+| `{SubjectID}_Combined_RMSSD.png` | Combined RMSSD graph (all conditions) |
+| `{SubjectID}_Combined_SDNN.png` | Combined SDNN graph (all conditions) |
+
 #### Questionnaire Analysis
 
-Statistical analysis and graph creation for questionnaire data.
+Statistical analysis and graph creation for questionnaire data. Supports both **custom questionnaires** and **PANAS**.
 
-**File Format:**
-Excel file (.xlsx) with the following format:
-- Row 1: Header (question item names)
-- Column names including condition names (e.g., `No_Q1`, `PID_Q1`, `MRAC_Q1`)
+##### Excel File Format
+
+```
+    |   A    |    B    |    C     |   D  |   E  |  ...  |   W  |
+----+--------+---------+----------+------+------+-------+------+
+  1 | (any)  | Subject | Condition|  Q1  |  Q2  |  ...  |  Q20 |  ← Header row
+----+--------+---------+----------+------+------+-------+------+
+  2 |        |   No1   |    1     |  5   |  4   |  ...  |  3   |
+  3 |        |   No1   |    4     |  4   |  5   |  ...  |  4   |
+  4 |        |   No2   |    1     |  3   |  4   |  ...  |  5   |
+ ...|        |   ...   |   ...    | ...  | ...  |  ...  | ...  |
+```
+
+- **Column B**: Subject ID (No1, No2, etc.)
+- **Column C**: Condition number or name (see mapping below)
+- **Columns D~**: Questionnaire item scores (numeric)
+
+**Condition Number Mapping:**
+| Number | Condition Name |
+|--------|---------------|
+| 1 | Fixed |
+| 2 | HRF |
+| 3 | Sin |
+| 4 | HRF2_PID |
+| 5 | HRF2_Adaptive |
+| 6 | HRF2_GS |
+| 7 | HRF2_Robust |
+
+##### Column Range Specification
+
+You can specify which columns to analyze:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Start Column | D | First questionnaire item column |
+| End Column | W | Last questionnaire item column |
+
+Example: To analyze only Q1-Q10 in columns D-M, set Start=D, End=M
+
+##### Custom Questionnaire
 
 **Usage:**
 1. Go to "Questionnaire Analysis" tab
 2. Click "Select Questionnaire File" to choose Excel file
-3. Click "Select Output Folder" to choose save location
-4. Click "Analyze & Create Graphs"
+3. (Optional) Specify column range
+4. Check desired conditions to include
+5. Click "Select Output Folder" to choose save location
+6. Click "Analyze & Create Graphs"
 
-**Output Graphs:**
-- Comparison bar graphs by condition
-- Statistical graphs with error bars
+**Output:**
+| Filename | Content |
+|----------|---------|
+| `question_boxplots_grid.png` | Summary grid of all items |
+| `question_boxplots/{item}_boxplot.png` | Individual item box plots |
+
+##### PANAS Analysis
+
+PANAS (Positive and Negative Affect Schedule) analysis with reliability coefficients.
+
+**Excel Format:**
+- Row 1: Header row
+- Column B: Subject ID
+- Column C: Condition (number 1-7 or name)
+- Columns D-M: PA items (10 items)
+- Columns N-W: NA items (10 items)
+
+**PANAS Items (Japanese version):**
+
+| PA Items (D-M) | NA Items (N-W) |
+|----------------|----------------|
+| 活気のある | 苦悩した |
+| 誇らしい | うろたえた |
+| わくわくした | 心配した |
+| 気合いの入った | イライラした |
+| 強気な | ぴりぴりした |
+| きっぱりとした | 恥じた |
+| 熱狂した | びくびくした |
+| 機敏な | 恐れた |
+| 興味のある | おびえた |
+| 意欲的な | 敵意を持った |
+
+**Usage:**
+1. Go to "Questionnaire Analysis" tab
+2. Click "Select Questionnaire File" to choose PANAS Excel file
+3. Check desired conditions
+4. Click "Select Output Folder"
+5. Click "PANAS Analysis"
+
+**Output:**
+| Filename | Content |
+|----------|---------|
+| `PANAS_boxplot.png` | PA/NA score box plots by condition |
+| `PANAS_results.xlsx` | Scores, reliability coefficients |
+
+**Reliability Coefficients:**
+- **Cronbach's α**: Internal consistency (correlation between items)
+- **McDonald's ω**: Factor-based reliability (more theoretically grounded)
 
 #### Log Files
 
