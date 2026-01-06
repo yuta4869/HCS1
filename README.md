@@ -144,7 +144,9 @@ python3 main.py
 | **会話システム** | メインの対話画面。心拍数モニター、LLM設定、音声設定、プロンプト編集など |
 | **リアルタイムモニター** | 心拍数・ECG・HRV(SDNN)のリアルタイムグラフ表示 |
 | **ECG/HRV解析** | 保存されたECGデータからLF/HF・RMSSDを計算 |
-| **アンケート解析** | アンケートデータの統計解析・グラフ作成 |
+| **時系列解析** | HR/RMSSD/SDNNの時系列グラフを生成 |
+| **アンケート解析(旧)** | 旧フォーマットのアンケートデータ解析（C列に条件番号） |
+| **アンケート解析(新)** | 新フォーマットのアンケートデータ解析（ファイル名から条件を自動検出） |
 
 #### 会話システムタブの設定
 
@@ -201,9 +203,11 @@ h10_ecg_session_No{被験者番号}_{日付}_{時刻}_{条件名}.csv
 **使い方:**
 1. 「ECG/HRV解析」タブに移動
 2. 「入力フォルダを選択」でECGファイルが入ったフォルダを選択
-3. 解析する条件にチェック（デフォルトで全条件選択）
-4. 必要に応じて詳細パラメータを調整
-5. 「バッチ解析 実行」をクリック
+   - 出力フォルダが未設定の場合、入力フォルダと同じ場所が自動設定されます
+3. 必要に応じて「出力フォルダを選択」で出力先を変更
+4. 解析する条件にチェック（デフォルトで全条件選択）
+5. 必要に応じて詳細パラメータを調整
+6. 「HRV解析 実行」をクリック
 
 **出力される解析結果:**
 | ファイル名 | 内容 |
@@ -258,7 +262,11 @@ HRセッションファイルからHR/RMSSD/SDNNの時系列グラフを生成�
 
 #### アンケート解析
 
-アンケートデータの統計解析とグラフ作成を行います。**独自アンケート**と**PANAS**の2種類に対応しています。
+アンケートデータの統計解析とグラフ作成を行います。**旧フォーマット**と**新フォーマット**の2種類のタブがあります。
+
+##### アンケート解析(旧) - 旧フォーマット
+
+C列に条件番号が含まれる形式のアンケートファイル用です。
 
 **入力ファイル形式（Excel .xlsx）:**
 
@@ -281,9 +289,32 @@ HRセッションファイルからHR/RMSSD/SDNNの時系列グラフを生成�
 | C列 | 条件番号 | 1-7の番号または条件名 |
 | D列〜 | アンケート回答 | リッカート尺度等 |
 
+**列範囲の指定:**
+- **独自アンケート**: デフォルト D列〜Y列
+- **PANAS**: デフォルト Z列〜AO列
+
+**使い方:**
+1. 「アンケート解析(旧)」タブに移動
+2. 「Excelファイルを選択」でファイルを選択
+3. 解析する条件にチェック
+4. 列範囲を確認（必要に応じて変更）
+5. 「箱ひげ図を作成」または「PANAS解析を実行」をクリック
+
+##### アンケート解析(新) - 新フォーマット
+
+ファイル名から条件を自動検出する形式です。条件ごとに別ファイルとして保存されたアンケート用です。
+
+**ファイル命名規則:**
+```
+実験後アンケート{条件番号}（回答）.xlsx
+例: 実験後アンケート1（回答）.xlsx → Fixed条件
+    実験後アンケート4（回答）.xlsx → HRF2_PID条件
+```
+
 **条件番号マッピング:**
 | 番号 | 条件名 |
 |------|--------|
+| 0 | Test（テスト用、解析対象外） |
 | 1 | Fixed |
 | 2 | HRF |
 | 3 | Sin |
@@ -292,30 +323,58 @@ HRセッションファイルからHR/RMSSD/SDNNの時系列グラフを生成�
 | 6 | HRF2_GS |
 | 7 | HRF2_Robust |
 
-**列範囲の指定:**
-- **独自アンケート**: デフォルト D列〜Y列
-- **PANAS**: デフォルト Z列〜AO列
+**入力ファイル形式（Excel .xlsx）:**
 
-Excel列文字（A, B, ..., Z, AA, AB, ...）で任意の範囲を指定できます。
-
-**独自アンケート解析:**
-1. 「アンケート解析」タブに移動
-2. 「Excelファイルを選択」でファイルを選択
-3. 解析する条件にチェック
-4. 列範囲を確認（必要に応じて変更）
-5. 「独自アンケート解析 実行」をクリック
-
-**出力:**
 ```
-{入力フォルダ}/
-├── question_boxplots_grid.png      # 全設問グリッド表示
-└── question_boxplots/              # 個別グラフフォルダ
-    ├── Q1_設問名_boxplot.png
-    ├── Q2_設問名_boxplot.png
+┌─────┬─────────┬───────┬───────┬───────┬───────┬─────────────┐
+│  A  │    B    │   C   │   D   │   E   │  ...  │     U〜     │
+├─────┼─────────┼───────┼───────┼───────┼───────┼─────────────┤
+│時刻 │ 被験者ID │ Q1    │ Q2    │ Q3    │  ...  │ PANAS項目   │
+├─────┼─────────┼───────┼───────┼───────┼───────┼─────────────┤
+│     │    1    │   4   │   3   │   5   │  ...  │     5       │
+│     │    2    │   5   │   4   │   4   │  ...  │     3       │
+└─────┴─────────┴───────┴───────┴───────┴───────┴─────────────┘
+```
+
+| 列 | 内容 | 備考 |
+|----|------|------|
+| A列 | タイムスタンプ | 任意 |
+| B列 | 被験者ID | 数値または文字列 |
+| C〜T列 | 設問（18問） | デフォルト範囲 |
+| U〜AK列 | PANAS（16項目） | デフォルト範囲 |
+
+**使い方:**
+1. 「アンケート解析(新)」タブに移動
+2. 「フォルダを選択」でアンケートファイルが入ったフォルダを選択
+   - ファイル名から条件が自動検出され、検出結果が表示されます
+   - 出力フォルダが未設定の場合、入力フォルダと同じ場所が自動設定されます
+3. 必要に応じて「出力フォルダを選択」で出力先を変更
+4. 解析する条件にチェック
+5. 列範囲を確認（必要に応じて変更）
+6. 「箱ひげ図を作成」または「PANAS解析を実行」をクリック
+
+**出力（独自アンケート）:**
+```
+{出力フォルダ}/
+├── question_boxplots_grid_v2.png   # 全設問グリッド表示
+└── question_boxplots_v2/           # 個別グラフフォルダ
+    ├── 設問名1_boxplot.png
+    ├── 設問名2_boxplot.png
     └── ...
 ```
 
-**PANAS解析:**
+**出力（PANAS）:**
+```
+{出力フォルダ}/PANAS_analysis_v2/
+├── PANAS_boxplot_v2.png    # PA/NA箱ひげ図（並列表示）
+├── PANAS_barplot_v2.png    # PA/NA棒グラフ（平均±SD）
+└── PANAS_results_v2.xlsx   # 統計結果
+    ├── 条件別統計シート    # n, 平均, SD, 中央値
+    ├── 内的一貫性シート    # α係数, ω係数
+    └── 個人データシート    # Subject, Condition, PA_Score, NA_Score
+```
+
+##### PANAS項目
 
 日本語版PANAS（Positive and Negative Affect Schedule）の解析機能です。
 
@@ -324,23 +383,6 @@ Excel列文字（A, B, ..., Z, AA, AB, ...）で任意の範囲を指定でき�
 - **NA（ネガティブ情動）8項目**: びくびくした、おびえた、うろたえた、心配した、ぴりぴりした、苦悩した、恥じた、いらだった
 
 **得点範囲**: 各項目1〜6点（6件法）、PA/NA合計 8〜48点
-
-**使い方:**
-1. 「アンケート解析」タブに移動
-2. 「Excelファイルを選択」でファイルを選択
-3. 列範囲を確認（デフォルト: Z列〜AO列）
-4. 「PANAS解析 実行」をクリック
-
-**出力:**
-```
-{入力フォルダ}/PANAS_analysis/
-├── PANAS_boxplot.png       # PA/NA箱ひげ図（並列表示）
-├── PANAS_barplot.png       # PA/NA棒グラフ（平均±SD）
-└── PANAS_results.xlsx      # 統計結果
-    ├── 条件別統計シート    # n, 平均, SD, 中央値
-    ├── 内的一貫性シート    # α係数, ω係数
-    └── 個人データシート    # Subject, Condition, PA_Score, NA_Score
-```
 
 **信頼性係数:**
 - クロンバックのα係数
@@ -499,7 +541,9 @@ python3 main.py
 | **Conversation System** | Main dialogue screen with HR monitor, LLM settings, voice settings, prompt editor |
 | **Realtime Monitor** | Real-time graphs of HR, ECG, and HRV (SDNN) |
 | **ECG/HRV Analysis** | Calculate LF/HF and RMSSD from saved ECG data |
-| **Questionnaire Analysis** | Statistical analysis and graph generation for questionnaire data |
+| **Timeseries Analysis** | Generate HR/RMSSD/SDNN time series graphs |
+| **Questionnaire Analysis (Old)** | Questionnaire analysis for old format (condition number in column C) |
+| **Questionnaire Analysis (New)** | Questionnaire analysis for new format (condition auto-detected from filename) |
 
 #### Conversation System Settings
 
@@ -556,9 +600,11 @@ Example: h10_ecg_session_No1_20251225_143000_HRF2_PID.csv
 **Usage:**
 1. Go to "ECG/HRV Analysis" tab
 2. Click "Select Input Folder" to choose folder containing ECG files
-3. Check conditions to analyze (all selected by default)
-4. Adjust detailed parameters if needed
-5. Click "Run Batch Analysis"
+   - Output folder is automatically set to the same location if not specified
+3. Optionally click "Select Output Folder" to change output location
+4. Check conditions to analyze (all selected by default)
+5. Adjust detailed parameters if needed
+6. Click "Run HRV Analysis"
 
 **Output Files:**
 | Filename | Content |
@@ -613,28 +659,50 @@ Generate HR/RMSSD/SDNN time series graphs from HR session files.
 
 #### Questionnaire Analysis
 
-Statistical analysis and graph creation for questionnaire data. Supports both **custom questionnaires** and **PANAS**.
+Statistical analysis and graph creation for questionnaire data. Two tabs are available: **Old Format** and **New Format**.
 
-##### Excel File Format
+##### Questionnaire Analysis (Old) - Old Format
 
+For questionnaire files with condition number in column C.
+
+**Excel File Format:**
 ```
-    |   A    |    B    |    C     |   D  |   E  |  ...  |   W  |
-----+--------+---------+----------+------+------+-------+------+
-  1 | (any)  | Subject | Condition|  Q1  |  Q2  |  ...  |  Q20 |  ← Header row
-----+--------+---------+----------+------+------+-------+------+
-  2 |        |   No1   |    1     |  5   |  4   |  ...  |  3   |
-  3 |        |   No1   |    4     |  4   |  5   |  ...  |  4   |
-  4 |        |   No2   |    1     |  3   |  4   |  ...  |  5   |
- ...|        |   ...   |   ...    | ...  | ...  |  ...  | ...  |
+    |   A    |    B    |    C     |   D  |   E  |  ...  |   Z~  |
+----+--------+---------+----------+------+------+-------+-------+
+  1 | (any)  | Subject | Condition|  Q1  |  Q2  |  ...  | PANAS |
+----+--------+---------+----------+------+------+-------+-------+
+  2 |        |   No1   |    1     |  5   |  4   |  ...  |   3   |
+  3 |        |   No1   |    4     |  4   |  5   |  ...  |   4   |
+  4 |        |   No2   |    1     |  3   |  4   |  ...  |   5   |
 ```
 
-- **Column B**: Subject ID (No1, No2, etc.)
-- **Column C**: Condition number or name (see mapping below)
-- **Columns D~**: Questionnaire item scores (numeric)
+- **Column B**: Subject ID
+- **Column C**: Condition number (1-7) or name
+- **Columns D~**: Questionnaire items (default D-Y)
+- **PANAS columns**: Default Z-AO
+
+**Usage:**
+1. Go to "Questionnaire Analysis (Old)" tab
+2. Click "Select Excel File" to choose file
+3. Check desired conditions
+4. Verify column range (adjust if needed)
+5. Click "Create Box Plots" or "Run PANAS Analysis"
+
+##### Questionnaire Analysis (New) - New Format
+
+For questionnaire files where condition is auto-detected from filename. Each condition is saved as a separate file.
+
+**File Naming Convention:**
+```
+実験後アンケート{ConditionNumber}（回答）.xlsx
+Example: 実験後アンケート1（回答）.xlsx → Fixed condition
+         実験後アンケート4（回答）.xlsx → HRF2_PID condition
+```
 
 **Condition Number Mapping:**
 | Number | Condition Name |
 |--------|---------------|
+| 0 | Test (excluded from analysis) |
 | 1 | Fixed |
 | 2 | HRF |
 | 3 | Sin |
@@ -643,75 +711,65 @@ Statistical analysis and graph creation for questionnaire data. Supports both **
 | 6 | HRF2_GS |
 | 7 | HRF2_Robust |
 
-##### Column Range Specification
+**Excel File Format:**
+```
+    |   A    |    B    |   C  |   D  |   E  |  ...  |   U~  |
+----+--------+---------+------+------+------+-------+-------+
+  1 | Time   | Subject |  Q1  |  Q2  |  Q3  |  ...  | PANAS |
+----+--------+---------+------+------+------+-------+-------+
+  2 |        |    1    |  4   |  3   |  5   |  ...  |   5   |
+  3 |        |    2    |  5   |  4   |  4   |  ...  |   3   |
+```
 
-You can specify which columns to analyze:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| Start Column | D | First questionnaire item column |
-| End Column | W | Last questionnaire item column |
-
-Example: To analyze only Q1-Q10 in columns D-M, set Start=D, End=M
-
-##### Custom Questionnaire
-
-**Usage:**
-1. Go to "Questionnaire Analysis" tab
-2. Click "Select Questionnaire File" to choose Excel file
-3. (Optional) Specify column range
-4. Check desired conditions to include
-5. Click "Select Output Folder" to choose save location
-6. Click "Analyze & Create Graphs"
-
-**Output:**
-| Filename | Content |
-|----------|---------|
-| `question_boxplots_grid.png` | Summary grid of all items |
-| `question_boxplots/{item}_boxplot.png` | Individual item box plots |
-
-##### PANAS Analysis
-
-PANAS (Positive and Negative Affect Schedule) analysis with reliability coefficients.
-
-**Excel Format:**
-- Row 1: Header row
-- Column B: Subject ID
-- Column C: Condition (number 1-7 or name)
-- Columns D-M: PA items (10 items)
-- Columns N-W: NA items (10 items)
-
-**PANAS Items (Japanese version):**
-
-| PA Items (D-M) | NA Items (N-W) |
-|----------------|----------------|
-| 活気のある | 苦悩した |
-| 誇らしい | うろたえた |
-| わくわくした | 心配した |
-| 気合いの入った | イライラした |
-| 強気な | ぴりぴりした |
-| きっぱりとした | 恥じた |
-| 熱狂した | びくびくした |
-| 機敏な | 恐れた |
-| 興味のある | おびえた |
-| 意欲的な | 敵意を持った |
+- **Column A**: Timestamp (optional)
+- **Column B**: Subject ID
+- **Columns C-T**: Questions (18 items, default)
+- **Columns U-AK**: PANAS (16 items, default)
 
 **Usage:**
-1. Go to "Questionnaire Analysis" tab
-2. Click "Select Questionnaire File" to choose PANAS Excel file
-3. Check desired conditions
-4. Click "Select Output Folder"
-5. Click "PANAS Analysis"
+1. Go to "Questionnaire Analysis (New)" tab
+2. Click "Select Folder" to choose folder containing questionnaire files
+   - Conditions are auto-detected from filenames and displayed
+   - Output folder is automatically set to the same location if not specified
+3. Optionally click "Select Output Folder" to change output location
+4. Check desired conditions
+5. Verify column range (adjust if needed)
+6. Click "Create Box Plots" or "Run PANAS Analysis"
 
-**Output:**
-| Filename | Content |
-|----------|---------|
-| `PANAS_boxplot.png` | PA/NA score box plots by condition |
-| `PANAS_results.xlsx` | Scores, reliability coefficients |
+**Output (Custom Questionnaire):**
+```
+{OutputFolder}/
+├── question_boxplots_grid_v2.png   # Summary grid
+└── question_boxplots_v2/           # Individual plots folder
+    ├── Question1_boxplot.png
+    ├── Question2_boxplot.png
+    └── ...
+```
+
+**Output (PANAS):**
+```
+{OutputFolder}/PANAS_analysis_v2/
+├── PANAS_boxplot_v2.png    # PA/NA box plots
+├── PANAS_barplot_v2.png    # PA/NA bar plots (mean±SD)
+└── PANAS_results_v2.xlsx   # Statistics results
+    ├── Condition Statistics  # n, mean, SD, median
+    ├── Internal Consistency  # α, ω coefficients
+    └── Individual Data       # Subject, Condition, PA_Score, NA_Score
+```
+
+##### PANAS Items
+
+Japanese PANAS (Positive and Negative Affect Schedule) analysis.
+
+**PANAS Items (16 items):**
+- **PA (Positive Affect) 8 items**: 活気のある, 誇らしい, 強気な, きっぱりとした, 気合いの入った, わくわくした, 機敏な, 熱狂した
+- **NA (Negative Affect) 8 items**: びくびくした, おびえた, うろたえた, 心配した, ぴりぴりした, 苦悩した, 恥じた, いらだった
+
+**Score Range**: 1-6 per item, PA/NA total 8-48
 
 **Reliability Coefficients:**
-- **Cronbach's α**: Internal consistency (correlation between items)
-- **McDonald's ω**: Factor-based reliability (more theoretically grounded)
+- **Cronbach's α**: Internal consistency
+- **McDonald's ω**: Factor-based reliability (simplified)
 
 #### Log Files
 
@@ -769,7 +827,10 @@ HCS1/
 │   ├── status_window.py    # Status display window
 │   ├── realtime_monitor.py # Realtime HR/ECG/SDNN monitor
 │   ├── ecg_analysis.py     # ECG/HRV analysis
-│   └── questionnaire_analysis.py
+│   ├── questionnaire_analysis.py    # Questionnaire analysis (old format)
+│   ├── questionnaire_analysis_v2.py # Questionnaire analysis (new format)
+│   ├── panas_analysis.py   # PANAS analysis
+│   └── timeseries_analysis.py # Timeseries analysis
 ├── audio_processing.py     # Audio processing & TTS
 ├── hrf2_controller.py      # Heart rate feedback controller
 ├── polar_monitor.py        # Polar sensor BLE connection
