@@ -61,6 +61,14 @@ from .panas_analysis import (
     generate_panas_plots,
     format_reliability_text,
 )
+from .questionnaire_analysis_v2 import (
+    V2_CONDITION_ORDER,
+    V2_CONDITION_COLORS,
+    scan_folder_for_surveys,
+    generate_v2_plots,
+    generate_v2_panas_plots,
+    format_v2_reliability_text,
+)
 from .realtime_monitor import RealtimeMonitorMixin
 from .timeseries_analysis import TimeseriesAnalysisMixin
 
@@ -222,9 +230,13 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         self.timeseries_analysis_tab = ttk.Frame(self.notebook, padding="10")
         self.notebook.add(self.timeseries_analysis_tab, text="時系列解析")
 
-        # タブ5: アンケート解析 (Analys_Q)
+        # タブ5: アンケート解析 (Analys_Q) - 旧フォーマット
         self.questionnaire_tab = ttk.Frame(self.notebook, padding="10")
-        self.notebook.add(self.questionnaire_tab, text="アンケート解析")
+        self.notebook.add(self.questionnaire_tab, text="アンケート解析(旧)")
+
+        # タブ6: アンケート解析V2 - 新フォーマット（ファイル名から条件取得）
+        self.questionnaire_v2_tab = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(self.questionnaire_v2_tab, text="アンケート解析(新)")
 
         # 各タブのUIを構築
         self._setup_conversation_tab()
@@ -232,6 +244,7 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         self._setup_ecg_analysis_tab()
         self._setup_timeseries_analysis_tab()
         self._setup_questionnaire_tab()
+        self._setup_questionnaire_v2_tab()
 
         # マウスホイールスクロールと右クリックメニューのセットアップ
         self._setup_mousewheel_scroll()
@@ -985,6 +998,129 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         self.questionnaire_preview_frame.grid(row=0, column=0, sticky="nsew")
         self.questionnaire_canvas_items = []
 
+    def _setup_questionnaire_v2_tab(self) -> None:
+        """アンケート解析V2タブのUIを構築（新フォーマット対応）
+
+        新フォーマット:
+        - 会話番号はファイル名から取得（例: 実験後アンケート0（回答）.xlsx）
+        - 設問: C〜T列（18問）
+        - PANAS: U〜AK列（16項目）
+        - フォルダ選択で複数ファイルを一括解析
+        """
+        main_frame = self.questionnaire_v2_tab
+        main_frame.columnconfigure(0, weight=1)
+
+        # --- フォルダ選択セクション ---
+        input_frame = ttk.LabelFrame(main_frame, text="アンケートデータ（新フォーマット）", padding="10")
+        input_frame.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
+        input_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(input_frame, text="アンケートファイルが入ったフォルダを選択してください。\n"
+                  "ファイル名から会話条件を自動検出します（例: 実験後アンケート1（回答）.xlsx → Fixed）"
+        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=5, pady=5)
+
+        self.questionnaire_v2_folder_var = tk.StringVar(value="")
+
+        ttk.Label(input_frame, text="フォルダ:").grid(row=1, column=0, sticky="w", padx=5, pady=5)
+        ttk.Entry(input_frame, textvariable=self.questionnaire_v2_folder_var, width=50).grid(row=1, column=1, sticky="ew", padx=5, pady=5)
+        ttk.Button(input_frame, text="参照...", command=self._browse_questionnaire_v2_folder).grid(row=1, column=2, padx=5, pady=5)
+
+        # 検出されたファイル一覧表示
+        self.questionnaire_v2_files_var = tk.StringVar(value="")
+        files_label = ttk.Label(input_frame, textvariable=self.questionnaire_v2_files_var, foreground="gray", wraplength=700)
+        files_label.grid(row=2, column=0, columnspan=3, sticky="w", padx=5, pady=5)
+
+        # --- 独自アンケート解析セクション ---
+        custom_frame = ttk.LabelFrame(main_frame, text="独自アンケート解析", padding="10")
+        custom_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+
+        ttk.Label(custom_frame, text="列範囲:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.custom_v2_start_col_var = tk.StringVar(value="C")
+        self.custom_v2_end_col_var = tk.StringVar(value="T")
+
+        ttk.Entry(custom_frame, textvariable=self.custom_v2_start_col_var, width=5).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        ttk.Label(custom_frame, text="〜").grid(row=0, column=2, padx=5, pady=5)
+        ttk.Entry(custom_frame, textvariable=self.custom_v2_end_col_var, width=5).grid(row=0, column=3, sticky="w", padx=5, pady=5)
+
+        self.custom_v2_run_button = ttk.Button(custom_frame, text="箱ひげ図を作成", command=self._run_custom_v2_questionnaire_analysis)
+        self.custom_v2_run_button.grid(row=0, column=4, padx=20, pady=5)
+
+        # --- PANAS解析セクション ---
+        panas_frame = ttk.LabelFrame(main_frame, text="PANAS解析", padding="10")
+        panas_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+
+        ttk.Label(panas_frame, text="列範囲:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.panas_v2_start_col_var = tk.StringVar(value="U")
+        self.panas_v2_end_col_var = tk.StringVar(value="AK")
+
+        ttk.Entry(panas_frame, textvariable=self.panas_v2_start_col_var, width=5).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        ttk.Label(panas_frame, text="〜").grid(row=0, column=2, padx=5, pady=5)
+        ttk.Entry(panas_frame, textvariable=self.panas_v2_end_col_var, width=5).grid(row=0, column=3, sticky="w", padx=5, pady=5)
+
+        self.panas_v2_run_button = ttk.Button(panas_frame, text="PANAS解析を実行", command=self._run_v2_panas_analysis)
+        self.panas_v2_run_button.grid(row=0, column=4, padx=20, pady=5)
+
+        ttk.Label(panas_frame, text="(PA/NA得点、信頼性係数α/ωを算出)", foreground="gray").grid(
+            row=0, column=5, sticky="w", padx=5, pady=5
+        )
+
+        # --- 条件フィルタ ---
+        condition_frame = ttk.LabelFrame(main_frame, text="条件フィルタ", padding="10")
+        condition_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
+        condition_frame.columnconfigure(0, weight=1)
+        ttk.Label(condition_frame, text="箱ひげ図に含める条件を選択してください。").grid(
+            row=0, column=0, sticky="w", padx=5, pady=(0, 5)
+        )
+
+        self.questionnaire_v2_condition_vars: Dict[str, tk.BooleanVar] = {}
+        for idx, condition in enumerate(V2_CONDITION_ORDER):
+            var = tk.BooleanVar(value=True)
+            self.questionnaire_v2_condition_vars[condition] = var
+
+            row_frame = ttk.Frame(condition_frame)
+            row_frame.grid(row=1 + idx, column=0, sticky="ew", padx=5, pady=2)
+            row_frame.columnconfigure(1, weight=1)
+
+            color = V2_CONDITION_COLORS.get(condition, "#CCCCCC")
+            color_indicator = tk.Canvas(row_frame, width=16, height=16, highlightthickness=0)
+            color_indicator.create_rectangle(0, 0, 16, 16, fill=color, outline="#666666")
+            color_indicator.grid(row=0, column=0, padx=(0, 8))
+
+            ttk.Checkbutton(
+                row_frame,
+                text=condition,
+                variable=var
+            ).grid(row=0, column=1, sticky="w")
+
+        condition_action_frame = ttk.Frame(condition_frame)
+        condition_action_frame.grid(row=1 + len(V2_CONDITION_ORDER), column=0, sticky="w", padx=5, pady=(8, 0))
+        ttk.Button(
+            condition_action_frame,
+            text="全て選択",
+            command=lambda: self._set_all_v2_questionnaire_conditions(True)
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(
+            condition_action_frame,
+            text="全て解除",
+            command=lambda: self._set_all_v2_questionnaire_conditions(False)
+        ).pack(side=tk.LEFT)
+
+        # --- ステータス表示 ---
+        self.questionnaire_v2_status_var = tk.StringVar(value="フォルダを選択してください。")
+        status_label = ttk.Label(main_frame, textvariable=self.questionnaire_v2_status_var, foreground="blue", wraplength=800)
+        status_label.grid(row=4, column=0, sticky="w", padx=10, pady=5)
+
+        # --- 結果プレビュー用フレーム ---
+        preview_frame = ttk.LabelFrame(main_frame, text="プレビュー", padding="10")
+        preview_frame.grid(row=5, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.columnconfigure(0, weight=1)
+        preview_frame.rowconfigure(0, weight=1)
+        main_frame.rowconfigure(5, weight=1)
+
+        self.questionnaire_v2_preview_frame = ttk.Frame(preview_frame)
+        self.questionnaire_v2_preview_frame.grid(row=0, column=0, sticky="nsew")
+        self.questionnaire_v2_canvas_items = []
+
     # =========================================================================
     # ECG解析タブのコールバック
     # =========================================================================
@@ -1452,6 +1588,203 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                 self.after(0, lambda: self.questionnaire_status_var.set("PANAS解析に失敗しました。"))
             finally:
                 self.after(0, lambda: self.panas_run_button.config(state=tk.NORMAL))
+
+        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col), daemon=True).start()
+
+    # =========================================================================
+    # アンケート解析V2タブのコールバック
+    # =========================================================================
+
+    def _browse_questionnaire_v2_folder(self):
+        """V2用フォルダ選択"""
+        folder_path = filedialog.askdirectory(
+            title="アンケートファイルが入ったフォルダを選択",
+        )
+        if folder_path:
+            self.questionnaire_v2_folder_var.set(folder_path)
+            # フォルダ内のファイルをスキャン
+            files_by_condition = scan_folder_for_surveys(folder_path)
+            if files_by_condition:
+                # 検出されたファイル情報を表示
+                file_info = []
+                for cond, files in files_by_condition.items():
+                    file_info.append(f"{cond}: {len(files)}件")
+                self.questionnaire_v2_files_var.set("検出: " + ", ".join(file_info))
+                self.questionnaire_v2_status_var.set("解析準備完了。箱ひげ図を作成またはPANAS解析を実行してください。")
+            else:
+                self.questionnaire_v2_files_var.set("アンケートファイルが見つかりませんでした。")
+                self.questionnaire_v2_status_var.set("ファイル名から条件を検出できませんでした。")
+
+    def _get_selected_v2_questionnaire_conditions(self) -> List[str]:
+        """V2用の選択された条件を取得"""
+        if not hasattr(self, "questionnaire_v2_condition_vars"):
+            return list(V2_CONDITION_ORDER)
+        return [cond for cond, var in self.questionnaire_v2_condition_vars.items() if var.get()]
+
+    def _set_all_v2_questionnaire_conditions(self, value: bool):
+        """V2用の全条件選択/解除"""
+        if not hasattr(self, "questionnaire_v2_condition_vars"):
+            return
+        for var in self.questionnaire_v2_condition_vars.values():
+            var.set(value)
+
+    def _clear_questionnaire_v2_canvas(self):
+        """V2用キャンバスクリア"""
+        for item in self.questionnaire_v2_canvas_items:
+            try:
+                if hasattr(item, 'get_tk_widget'):
+                    item.get_tk_widget().destroy()
+                elif hasattr(item, 'destroy'):
+                    item.destroy()
+            except Exception:
+                pass
+        self.questionnaire_v2_canvas_items.clear()
+        if not hasattr(self, '_questionnaire_v2_photo_refs'):
+            self._questionnaire_v2_photo_refs = []
+        self._questionnaire_v2_photo_refs.clear()
+
+    def _display_questionnaire_v2_image(self, image_path: str):
+        """V2用の画像表示"""
+        self._clear_questionnaire_v2_canvas()
+        try:
+            from PIL import Image, ImageTk
+            img = Image.open(image_path)
+            max_width = 800
+            if img.width > max_width:
+                ratio = max_width / img.width
+                new_size = (max_width, int(img.height * ratio))
+                img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+            photo = ImageTk.PhotoImage(img)
+            if not hasattr(self, '_questionnaire_v2_photo_refs'):
+                self._questionnaire_v2_photo_refs = []
+            self._questionnaire_v2_photo_refs.append(photo)
+
+            label = tk.Label(self.questionnaire_v2_preview_frame, image=photo)
+            label.grid(row=0, column=0, sticky="nsew", pady=10)
+            self.questionnaire_v2_canvas_items.append(label)
+            self.questionnaire_v2_preview_frame.rowconfigure(0, weight=1)
+            self.questionnaire_v2_preview_frame.columnconfigure(0, weight=1)
+        except ImportError:
+            label = tk.Label(
+                self.questionnaire_v2_preview_frame,
+                text=f"画像プレビューにはPillowが必要です。\n保存先: {image_path}",
+                wraplength=600
+            )
+            label.grid(row=0, column=0, sticky="nsew", pady=10)
+            self.questionnaire_v2_canvas_items.append(label)
+        except Exception as e:
+            label = tk.Label(
+                self.questionnaire_v2_preview_frame,
+                text=f"画像の表示に失敗しました: {e}\n保存先: {image_path}",
+                wraplength=600
+            )
+            label.grid(row=0, column=0, sticky="nsew", pady=10)
+            self.questionnaire_v2_canvas_items.append(label)
+
+    def _run_custom_v2_questionnaire_analysis(self):
+        """V2独自アンケート解析（箱ひげ図）を実行"""
+        folder_path = self.questionnaire_v2_folder_var.get()
+        if not folder_path:
+            messagebox.showwarning("フォルダ未選択", "アンケートフォルダを選択してください。")
+            return
+        selected_conditions = self._get_selected_v2_questionnaire_conditions()
+        if not selected_conditions:
+            messagebox.showwarning("条件未選択", "少なくとも1つの条件を選択してください。")
+            return
+
+        start_col = self.custom_v2_start_col_var.get().strip() or "C"
+        end_col = self.custom_v2_end_col_var.get().strip() or "T"
+
+        self.custom_v2_run_button.config(state=tk.DISABLED)
+        self.questionnaire_v2_status_var.set("箱ひげ図を作成中...")
+        self.update_idletasks()
+
+        def run_in_thread(conditions: List[str], start: str, end: str):
+            try:
+                result = generate_v2_plots(
+                    folder_path, selected_conditions=conditions, start_col=start, end_col=end
+                )
+                summary_path = str(result['summary_path'])
+                self.after(0, lambda: self._display_questionnaire_v2_image(summary_path))
+                self.after(0, lambda: self.questionnaire_v2_status_var.set(
+                    f"サマリー: {result['summary_path'].name} / "
+                    f"設問別: {len(result['per_question_paths'])}枚を question_boxplots_v2 フォルダに保存 "
+                    f"(条件: {', '.join(result['active_conditions'])}, 被験者数: {result['n_subjects']})"
+                ))
+                self.after(0, lambda: messagebox.showinfo(
+                    "完了",
+                    f"箱ひげ図を作成しました。\n"
+                    f"PNGファイルをフォルダに保存しました。\n"
+                    f"条件: {', '.join(result['active_conditions'])}\n"
+                    f"被験者数: {result['n_subjects']}",
+                ))
+            except Exception as exc:
+                import traceback
+                traceback.print_exc()
+                self.after(0, lambda: messagebox.showerror("エラー", f"箱ひげ図の作成に失敗しました。\n{exc}"))
+                self.after(0, lambda: self.questionnaire_v2_status_var.set("箱ひげ図の作成に失敗しました。"))
+            finally:
+                self.after(0, lambda: self.custom_v2_run_button.config(state=tk.NORMAL))
+
+        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col), daemon=True).start()
+
+    def _run_v2_panas_analysis(self):
+        """V2 PANAS解析を実行"""
+        folder_path = self.questionnaire_v2_folder_var.get()
+        if not folder_path:
+            messagebox.showwarning("フォルダ未選択", "アンケートフォルダを選択してください。")
+            return
+        selected_conditions = self._get_selected_v2_questionnaire_conditions()
+        if not selected_conditions:
+            messagebox.showwarning("条件未選択", "少なくとも1つの条件を選択してください。")
+            return
+
+        start_col = self.panas_v2_start_col_var.get().strip() or "U"
+        end_col = self.panas_v2_end_col_var.get().strip() or "AK"
+
+        self.panas_v2_run_button.config(state=tk.DISABLED)
+        self.questionnaire_v2_status_var.set("PANAS解析を実行中...")
+        self.update_idletasks()
+
+        def run_in_thread(conditions: List[str], start: str, end: str):
+            try:
+                result = generate_v2_panas_plots(
+                    folder_path, selected_conditions=conditions, start_col=start, end_col=end
+                )
+                summary_path = str(result['summary_path'])
+
+                reliability_text = format_v2_reliability_text(result['analysis']['reliability'])
+
+                self.after(0, lambda: self._display_questionnaire_v2_image(summary_path))
+                self.after(0, lambda: self.questionnaire_v2_status_var.set(
+                    f"PANAS解析完了: {result['excel_path'].name} / "
+                    f"グラフ: {len(result['figure_paths'])}枚を PANAS_analysis_v2 フォルダに保存"
+                ))
+
+                def show_result():
+                    stats_lines = ["=== 条件別PANAS得点 ===\n"]
+                    for cond, stats in result['analysis']['results_by_condition'].items():
+                        stats_lines.append(f"【{cond}】 n={stats['n']}")
+                        stats_lines.append(f"  PA: {stats['PA_mean']:.1f} ± {stats['PA_std']:.1f}")
+                        stats_lines.append(f"  NA: {stats['NA_mean']:.1f} ± {stats['NA_std']:.1f}")
+                        stats_lines.append("")
+
+                    full_text = "\n".join(stats_lines) + "\n" + reliability_text
+                    messagebox.showinfo(
+                        "PANAS解析完了",
+                        f"解析結果を保存しました。\n\n{full_text}"
+                    )
+
+                self.after(0, show_result)
+
+            except Exception as exc:
+                import traceback
+                traceback.print_exc()
+                self.after(0, lambda: messagebox.showerror("エラー", f"PANAS解析に失敗しました。\n{exc}"))
+                self.after(0, lambda: self.questionnaire_v2_status_var.set("PANAS解析に失敗しました。"))
+            finally:
+                self.after(0, lambda: self.panas_v2_run_button.config(state=tk.NORMAL))
 
         threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col), daemon=True).start()
 
