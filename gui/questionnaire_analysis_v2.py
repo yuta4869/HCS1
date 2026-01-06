@@ -252,7 +252,8 @@ def generate_v2_plots(
     folder_path: str,
     selected_conditions: Optional[List[str]] = None,
     start_col: str = "C",
-    end_col: str = "T"
+    end_col: str = "T",
+    output_folder: Optional[str] = None
 ) -> Dict[str, Any]:
     """V2フォーマットの箱ひげ図を作成する。
 
@@ -261,6 +262,7 @@ def generate_v2_plots(
         selected_conditions: 解析対象の条件リスト
         start_col: 開始列
         end_col: 終了列
+        output_folder: 出力フォルダ（Noneの場合はfolder_pathを使用）
 
     Returns:
         結果辞書
@@ -269,7 +271,7 @@ def generate_v2_plots(
         folder_path, selected_conditions, start_col, end_col
     )
 
-    output_dir = Path(folder_path)
+    output_dir = Path(output_folder) if output_folder else Path(folder_path)
     palette = [V2_CONDITION_COLORS.get(name, "#999999") for name in active_conditions]
 
     # サマリーグリッド図を作成
@@ -558,11 +560,21 @@ def generate_v2_panas_plots(
     folder_path: str,
     selected_conditions: Optional[List[str]] = None,
     start_col: str = "U",
-    end_col: str = "AK"
+    end_col: str = "AK",
+    output_folder: Optional[str] = None
 ) -> Dict[str, Any]:
-    """V2フォーマットのPANAS解析を実行し、グラフを生成する。"""
+    """V2フォーマットのPANAS解析を実行し、グラフを生成する。
+
+    Args:
+        folder_path: 入力フォルダパス
+        selected_conditions: 解析対象の条件リスト
+        start_col: PANAS開始列
+        end_col: PANAS終了列
+        output_folder: 出力フォルダ（Noneの場合はfolder_pathを使用）
+    """
     analysis = analyze_v2_panas(folder_path, selected_conditions, start_col, end_col)
-    output_dir = Path(folder_path) / "PANAS_analysis_v2"
+    base_output_dir = Path(output_folder) if output_folder else Path(folder_path)
+    output_dir = base_output_dir / "PANAS_analysis_v2"
     output_dir.mkdir(exist_ok=True)
 
     df = analysis["df"]

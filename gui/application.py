@@ -1030,9 +1030,24 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         files_label = ttk.Label(input_frame, textvariable=self.questionnaire_v2_files_var, foreground="gray", wraplength=700)
         files_label.grid(row=2, column=0, columnspan=3, sticky="w", padx=5, pady=5)
 
+        # --- 出力フォルダ選択セクション ---
+        output_frame = ttk.LabelFrame(main_frame, text="出力先", padding="10")
+        output_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        output_frame.columnconfigure(1, weight=1)
+
+        self.questionnaire_v2_output_var = tk.StringVar(value="")
+
+        ttk.Label(output_frame, text="出力フォルダ:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        ttk.Entry(output_frame, textvariable=self.questionnaire_v2_output_var, width=50).grid(row=0, column=1, sticky="ew", padx=5, pady=5)
+        ttk.Button(output_frame, text="参照...", command=self._browse_questionnaire_v2_output_folder).grid(row=0, column=2, padx=5, pady=5)
+
+        ttk.Label(output_frame, text="※空白の場合、入力フォルダと同じ場所に出力されます", foreground="gray").grid(
+            row=1, column=0, columnspan=3, sticky="w", padx=5, pady=(0, 5)
+        )
+
         # --- 独自アンケート解析セクション ---
         custom_frame = ttk.LabelFrame(main_frame, text="独自アンケート解析", padding="10")
-        custom_frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        custom_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
 
         ttk.Label(custom_frame, text="列範囲:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.custom_v2_start_col_var = tk.StringVar(value="C")
@@ -1047,7 +1062,7 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
 
         # --- PANAS解析セクション ---
         panas_frame = ttk.LabelFrame(main_frame, text="PANAS解析", padding="10")
-        panas_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+        panas_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
 
         ttk.Label(panas_frame, text="列範囲:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.panas_v2_start_col_var = tk.StringVar(value="U")
@@ -1066,7 +1081,7 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
 
         # --- 条件フィルタ ---
         condition_frame = ttk.LabelFrame(main_frame, text="条件フィルタ", padding="10")
-        condition_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
+        condition_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
         condition_frame.columnconfigure(0, weight=1)
         ttk.Label(condition_frame, text="箱ひげ図に含める条件を選択してください。").grid(
             row=0, column=0, sticky="w", padx=5, pady=(0, 5)
@@ -1108,14 +1123,14 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         # --- ステータス表示 ---
         self.questionnaire_v2_status_var = tk.StringVar(value="フォルダを選択してください。")
         status_label = ttk.Label(main_frame, textvariable=self.questionnaire_v2_status_var, foreground="blue", wraplength=800)
-        status_label.grid(row=4, column=0, sticky="w", padx=10, pady=5)
+        status_label.grid(row=5, column=0, sticky="w", padx=10, pady=5)
 
         # --- 結果プレビュー用フレーム ---
         preview_frame = ttk.LabelFrame(main_frame, text="プレビュー", padding="10")
-        preview_frame.grid(row=5, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.grid(row=6, column=0, sticky="nsew", padx=5, pady=5)
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(5, weight=1)
+        main_frame.rowconfigure(6, weight=1)
 
         self.questionnaire_v2_preview_frame = ttk.Frame(preview_frame)
         self.questionnaire_v2_preview_frame.grid(row=0, column=0, sticky="nsew")
@@ -1596,12 +1611,15 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
     # =========================================================================
 
     def _browse_questionnaire_v2_folder(self):
-        """V2用フォルダ選択"""
+        """V2用入力フォルダ選択"""
         folder_path = filedialog.askdirectory(
             title="アンケートファイルが入ったフォルダを選択",
         )
         if folder_path:
             self.questionnaire_v2_folder_var.set(folder_path)
+            # 出力フォルダが空の場合、入力フォルダと同じ場所を自動設定
+            if not self.questionnaire_v2_output_var.get().strip():
+                self.questionnaire_v2_output_var.set(folder_path)
             # フォルダ内のファイルをスキャン
             files_by_condition = scan_folder_for_surveys(folder_path)
             if files_by_condition:
@@ -1614,6 +1632,27 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             else:
                 self.questionnaire_v2_files_var.set("アンケートファイルが見つかりませんでした。")
                 self.questionnaire_v2_status_var.set("ファイル名から条件を検出できませんでした。")
+
+    def _browse_questionnaire_v2_output_folder(self):
+        """V2用出力フォルダ選択"""
+        # 現在の出力フォルダまたは入力フォルダを初期ディレクトリとして使用
+        initial_dir = self.questionnaire_v2_output_var.get().strip()
+        if not initial_dir:
+            initial_dir = self.questionnaire_v2_folder_var.get().strip()
+
+        folder_path = filedialog.askdirectory(
+            title="解析結果の出力先フォルダを選択",
+            initialdir=initial_dir if initial_dir else None,
+        )
+        if folder_path:
+            self.questionnaire_v2_output_var.set(folder_path)
+
+    def _get_v2_output_folder(self) -> str:
+        """V2用出力フォルダを取得（空の場合は入力フォルダを返す）"""
+        output_folder = self.questionnaire_v2_output_var.get().strip()
+        if output_folder:
+            return output_folder
+        return self.questionnaire_v2_folder_var.get().strip()
 
     def _get_selected_v2_questionnaire_conditions(self) -> List[str]:
         """V2用の選択された条件を取得"""
@@ -1695,15 +1734,17 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
 
         start_col = self.custom_v2_start_col_var.get().strip() or "C"
         end_col = self.custom_v2_end_col_var.get().strip() or "T"
+        output_folder = self._get_v2_output_folder()
 
         self.custom_v2_run_button.config(state=tk.DISABLED)
         self.questionnaire_v2_status_var.set("箱ひげ図を作成中...")
         self.update_idletasks()
 
-        def run_in_thread(conditions: List[str], start: str, end: str):
+        def run_in_thread(conditions: List[str], start: str, end: str, out_folder: str):
             try:
                 result = generate_v2_plots(
-                    folder_path, selected_conditions=conditions, start_col=start, end_col=end
+                    folder_path, selected_conditions=conditions, start_col=start, end_col=end,
+                    output_folder=out_folder
                 )
                 summary_path = str(result['summary_path'])
                 self.after(0, lambda: self._display_questionnaire_v2_image(summary_path))
@@ -1715,7 +1756,7 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                 self.after(0, lambda: messagebox.showinfo(
                     "完了",
                     f"箱ひげ図を作成しました。\n"
-                    f"PNGファイルをフォルダに保存しました。\n"
+                    f"出力先: {out_folder}\n"
                     f"条件: {', '.join(result['active_conditions'])}\n"
                     f"被験者数: {result['n_subjects']}",
                 ))
@@ -1727,7 +1768,7 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             finally:
                 self.after(0, lambda: self.custom_v2_run_button.config(state=tk.NORMAL))
 
-        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col), daemon=True).start()
+        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col, output_folder), daemon=True).start()
 
     def _run_v2_panas_analysis(self):
         """V2 PANAS解析を実行"""
@@ -1742,15 +1783,17 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
 
         start_col = self.panas_v2_start_col_var.get().strip() or "U"
         end_col = self.panas_v2_end_col_var.get().strip() or "AK"
+        output_folder = self._get_v2_output_folder()
 
         self.panas_v2_run_button.config(state=tk.DISABLED)
         self.questionnaire_v2_status_var.set("PANAS解析を実行中...")
         self.update_idletasks()
 
-        def run_in_thread(conditions: List[str], start: str, end: str):
+        def run_in_thread(conditions: List[str], start: str, end: str, out_folder: str):
             try:
                 result = generate_v2_panas_plots(
-                    folder_path, selected_conditions=conditions, start_col=start, end_col=end
+                    folder_path, selected_conditions=conditions, start_col=start, end_col=end,
+                    output_folder=out_folder
                 )
                 summary_path = str(result['summary_path'])
 
@@ -1773,7 +1816,7 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                     full_text = "\n".join(stats_lines) + "\n" + reliability_text
                     messagebox.showinfo(
                         "PANAS解析完了",
-                        f"解析結果を保存しました。\n\n{full_text}"
+                        f"解析結果を保存しました。\n出力先: {out_folder}\n\n{full_text}"
                     )
 
                 self.after(0, show_result)
@@ -1786,7 +1829,7 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             finally:
                 self.after(0, lambda: self.panas_v2_run_button.config(state=tk.NORMAL))
 
-        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col), daemon=True).start()
+        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col, output_folder), daemon=True).start()
 
     def _on_subject_id_change(self, *_) -> None:
         self._update_subject_id_hint()

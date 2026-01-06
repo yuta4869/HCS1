@@ -27,6 +27,7 @@ models/
 # Logs (large files)
 Logs/
 logs20251222/
+logs20251225/
 
 # IDE settings
 .vscode/
@@ -38,4 +39,8 @@ logs/
 HCS1.git/
 
 # Dependency files
-requirements.txt
+
+# requirements.txt
+PANAS_analysis_v2/
+question_boxplots_v2/
+assets/
