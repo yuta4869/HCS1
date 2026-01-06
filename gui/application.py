@@ -1145,10 +1145,19 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         if folder_path:
             self.ecg_input_dir = folder_path
             self.ecg_input_dir_var.set(folder_path)
+            # 出力フォルダが未設定の場合、入力フォルダと同じ場所を自動設定
+            if not self.ecg_output_dir:
+                self.ecg_output_dir = folder_path
+                self.ecg_output_dir_var.set(folder_path)
             self.ecg_status_var.set("HRV解析 実行 を押して解析を開始してください。")
 
     def _browse_ecg_output_folder(self):
-        folder_path = filedialog.askdirectory(title="出力先フォルダを選択してください")
+        # 現在の出力フォルダまたは入力フォルダを初期ディレクトリとして使用
+        initial_dir = self.ecg_output_dir if self.ecg_output_dir else self.ecg_input_dir
+        folder_path = filedialog.askdirectory(
+            title="出力先フォルダを選択してください",
+            initialdir=initial_dir if initial_dir else None
+        )
         if folder_path:
             self.ecg_output_dir = folder_path
             self.ecg_output_dir_var.set(folder_path)
