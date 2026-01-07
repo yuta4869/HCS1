@@ -33,6 +33,8 @@ logs*/
 *.csv
 # *.txt
 
+results/
+
 # IDE settings
 .vscode/
 

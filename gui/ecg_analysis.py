@@ -84,18 +84,26 @@ def bandpass_filter(signal_data, fs):
 
 
 def ecg_to_rri(file_path, fs=130, analysis_start_offset=None, analysis_end_offset=None):
-    """ECGデータからRRIを算出する"""
+    """ECGデータからRRIを算出する
+
+    Returns:
+        tuple: (rri_data, analysis_start_time, analysis_end_time, time_offset_seconds)
+            - rri_data: RR間隔データ (ms)
+            - analysis_start_time: 解析開始時刻 (Timestamp)
+            - analysis_end_time: 解析終了時刻 (Timestamp)
+            - time_offset_seconds: データ開始からのオフセット秒数（Time列に加算する値）
+    """
     from scipy.signal import find_peaks
     try:
         data = pd.read_csv(file_path, delimiter=',', encoding="utf-8", skiprows=1, header=None, usecols=[0, 2], names=['timestamp', 'ecg'])
     except ValueError:
         print(f"エラー: {os.path.basename(file_path)} の読み込みに失敗しました。")
-        return np.array([]), None, None
+        return np.array([]), None, None, 0.0
 
     # データが空の場合（ヘッダーのみ）のチェック
     if data.empty or len(data) == 0:
         print(f"エラー: {os.path.basename(file_path)} にデータがありません（H10接続断の可能性）。")
-        return np.array([]), None, None
+        return np.array([]), None, None, 0.0
 
     data['timestamp'] = pd.to_datetime(data['timestamp'])
     start_time_real = data['timestamp'].iloc[0]
@@ -103,28 +111,30 @@ def ecg_to_rri(file_path, fs=130, analysis_start_offset=None, analysis_end_offse
     duration_seconds = (end_time_real - start_time_real).total_seconds()
 
     custom_window = analysis_start_offset is not None or analysis_end_offset is not None
+    time_offset_seconds = 0.0  # Time列に加算するオフセット
 
     if custom_window:
         start_offset = max(0.0, analysis_start_offset or 0.0)
         analysis_start_time = start_time_real + pd.Timedelta(seconds=start_offset)
+        time_offset_seconds = start_offset  # ユーザー指定のオフセットを使用
         if analysis_end_offset is not None:
             if analysis_end_offset <= start_offset:
                 print("  -> エラー: 解析終了時刻が開始時刻以下です。")
-                return np.array([]), None, None
+                return np.array([]), None, None, 0.0
             analysis_end_time = start_time_real + pd.Timedelta(seconds=analysis_end_offset)
         else:
             analysis_end_time = end_time_real
 
         if analysis_start_time >= end_time_real:
             print("  -> エラー: 指定された解析開始時刻がデータ範囲外です。")
-            return np.array([]), None, None
+            return np.array([]), None, None, 0.0
 
         if analysis_end_time > end_time_real:
             analysis_end_time = end_time_real
 
         if analysis_end_time <= analysis_start_time:
             print("  -> エラー: 指定された解析区間が無効です。")
-            return np.array([]), None, None
+            return np.array([]), None, None, 0.0
 
         data_filtered = data[(data['timestamp'] >= analysis_start_time) & (data['timestamp'] <= analysis_end_time)]
         actual_end_offset = (analysis_end_time - start_time_real).total_seconds()
@@ -135,15 +145,17 @@ def ecg_to_rri(file_path, fs=130, analysis_start_offset=None, analysis_end_offse
             analysis_start_time = start_time_real
             analysis_end_time = end_time_real
             data_filtered = data
+            time_offset_seconds = 0.0
         else:
             print(f"  -> 長いデータを検出 ({duration_seconds:.1f}秒): 30秒後から5分間を解析します")
             analysis_start_time = start_time_real + pd.Timedelta(seconds=30)
             analysis_end_time = start_time_real + pd.Timedelta(minutes=5, seconds=30)
             data_filtered = data[(data['timestamp'] >= analysis_start_time) & (data['timestamp'] <= analysis_end_time)]
+            time_offset_seconds = 30.0  # デフォルトの30秒オフセット
 
     if data_filtered.empty:
         print("  -> エラー: 解析対象期間のデータが空です。")
-        return np.array([]), None, None
+        return np.array([]), None, None, 0.0
 
     ecg_data = data_filtered['ecg'].values
     filtered_ecg = bandpass_filter(ecg_data, fs)
@@ -156,7 +168,7 @@ def ecg_to_rri(file_path, fs=130, analysis_start_offset=None, analysis_end_offse
     peaks, _ = find_peaks(integrated_ecg, distance=distance, height=height_threshold)
     rri_data = np.diff(peaks) * 1000 / fs
 
-    return rri_data, analysis_start_time, analysis_end_time
+    return rri_data, analysis_start_time, analysis_end_time, time_offset_seconds
 
 
 def calculate_hrv_indices(
@@ -177,7 +189,7 @@ def calculate_hrv_indices(
     import scipy.signal
 
     print(f"--- 解析開始: {label} ({os.path.basename(file_path)}) ---")
-    rri_data, start_time, end_time = ecg_to_rri(
+    rri_data, start_time, end_time, time_offset_seconds = ecg_to_rri(
         file_path,
         fs,
         analysis_start_offset=analysis_start_offset,
@@ -186,6 +198,9 @@ def calculate_hrv_indices(
 
     if len(rri_data) == 0:
         return None, None
+
+    # Time列に加算するオフセット（解析区間の開始秒数）
+    print(f"  -> Time列オフセット: {time_offset_seconds:.1f}秒")
 
     if resampling_freq <= 0:
         resampling_freq = 1.0
@@ -303,7 +318,7 @@ def calculate_hrv_indices(
             RMSSD_sliding.append(np.nan)
             SDNN_sliding.append(np.nan)
 
-        time_points.append(i)
+        time_points.append(i + time_offset_seconds)  # オフセットを加算
         i += 1
 
     sliding_result_df = pd.DataFrame({
@@ -494,9 +509,160 @@ def generate_box_plots(
     return saved_files
 
 
+def generate_all_subjects_box_plots(
+    output_dir,
+    condition_labels=None,
+    condition_order=None,
+):
+    """全被験者データから箱ひげ図を生成する
+
+    各被験者フォルダからCombined_HRV_Analysis.xlsxを読み込み、
+    全被験者を統合した箱ひげ図を生成する。
+    """
+    condition_labels = condition_labels or DEFAULT_CONDITION_LABELS
+    condition_order = condition_order or ANALYS_CONDITION_ORDER
+    colors = CONDITION_COLORS
+
+    if not os.path.isdir(output_dir):
+        raise FileNotFoundError(f"フォルダが見つかりません: {output_dir}")
+
+    # 全被験者のデータを収集
+    all_data = []
+    for entry in sorted(os.listdir(output_dir)):
+        subject_dir = os.path.join(output_dir, entry)
+        if not os.path.isdir(subject_dir):
+            continue
+
+        # 両方のパターンを探す
+        combined_path = os.path.join(subject_dir, "Combined_HRV_Analysis.xlsx")
+        combined_path_with_id = os.path.join(subject_dir, f"{entry}_Combined_HRV_Analysis.xlsx")
+
+        file_path = None
+        if os.path.exists(combined_path):
+            file_path = combined_path
+        elif os.path.exists(combined_path_with_id):
+            file_path = combined_path_with_id
+
+        if file_path:
+            df = pd.read_excel(file_path)
+            df['Subject'] = entry
+            all_data.append(df)
+
+    if not all_data:
+        raise ValueError("統合対象のCombined_HRV_Analysis.xlsxが見つかりません")
+
+    combined_df = pd.concat(all_data, ignore_index=True)
+    print(f"全{len(all_data)}名のデータを統合しました。")
+
+    saved_files = []
+
+    # 統合データを縦長形式に変換して保存
+    all_metrics_data = []
+    for eng_key, display_label in condition_labels.items():
+        for metric_suffix, metric_name in [('_LF/HF', 'LF/HF'), ('_RMSSD', 'RMSSD'), ('_SDNN', 'SDNN')]:
+            col_name = f"{eng_key}{metric_suffix}"
+            if col_name in combined_df.columns:
+                temp_df = combined_df[['Subject', 'Time', col_name]].copy()
+                temp_df = temp_df.rename(columns={col_name: 'Value'})
+                temp_df['Condition'] = display_label or eng_key
+                temp_df['Metric'] = metric_name
+                all_metrics_data.append(temp_df)
+
+    if all_metrics_data:
+        merged_data = pd.concat(all_metrics_data, ignore_index=True)
+        merged_data = merged_data.dropna(subset=['Value'])
+        # 縦長形式で保存
+        long_output_path = os.path.join(output_dir, "AllSubjects_HRV_Long.xlsx")
+        merged_data.to_excel(long_output_path, index=False)
+        print(f"統合データ（縦長形式）を保存: {long_output_path}")
+        saved_files.append(long_output_path)
+
+        # 横長形式（被験者×条件）も保存 - 各指標の平均値
+        pivot_frames = []
+        for metric in ['LF/HF', 'RMSSD', 'SDNN']:
+            metric_data = merged_data[merged_data['Metric'] == metric]
+            if not metric_data.empty:
+                # 被験者×条件ごとの平均値
+                pivot = metric_data.groupby(['Subject', 'Condition'])['Value'].mean().unstack()
+                pivot.columns = [f"{col}_{metric}" for col in pivot.columns]
+                pivot_frames.append(pivot)
+        if pivot_frames:
+            wide_df = pd.concat(pivot_frames, axis=1)
+            wide_output_path = os.path.join(output_dir, "AllSubjects_HRV_Wide.xlsx")
+            wide_df.to_excel(wide_output_path)
+            print(f"統合データ（横長形式）を保存: {wide_output_path}")
+            saved_files.append(wide_output_path)
+
+    for metric_suffix, title, output_filename in [
+        ('_LF/HF', 'LF/HFの比較（全被験者）', 'AllSubjects_LFHF_Boxplot.png'),
+        ('_RMSSD', 'RMSSDの比較（全被験者）', 'AllSubjects_RMSSD_Boxplot.png'),
+        ('_SDNN', 'SDNNの比較（全被験者）', 'AllSubjects_SDNN_Boxplot.png')
+    ]:
+        print(f"--- {title} のグラフを作成中 ---")
+        plot_data = pd.DataFrame()
+        found_cols = False
+
+        for eng_key, display_label in condition_labels.items():
+            col_name = f"{eng_key}{metric_suffix}"
+            if col_name in combined_df.columns:
+                label = display_label or eng_key
+                temp_df = combined_df[['Subject', col_name]].copy()
+                temp_df = temp_df.rename(columns={col_name: 'Value'})
+                temp_df['Condition'] = label
+                plot_data = pd.concat([plot_data, temp_df], ignore_index=True)
+                found_cols = True
+
+        if not found_cols:
+            print(f"エラー: {metric_suffix} に関するデータが見つかりませんでした。")
+            continue
+
+        plot_data = plot_data.dropna(subset=['Value'])
+
+        fig = Figure(figsize=(10, 7))
+        canvas = FigureCanvasAgg(fig)
+        ax = fig.add_subplot(111)
+
+        available_labels = set(plot_data['Condition'])
+        order_labels = []
+        for cond in condition_order:
+            label = condition_labels.get(cond)
+            if label and label in available_labels:
+                order_labels.append(label)
+        if not order_labels:
+            order_labels = list(plot_data['Condition'].unique())
+
+        palette = {}
+        for cond in condition_order:
+            label = condition_labels.get(cond)
+            if label and label in order_labels:
+                palette[label] = colors.get(cond, 'lightgray')
+        for label in order_labels:
+            if label not in palette:
+                palette[label] = 'lightgray'
+
+        sns.boxplot(x='Condition', y='Value', data=plot_data, palette=palette, ax=ax, showfliers=False, width=0.5, order=order_labels)
+
+        legend_patches = [mpatches.Patch(color=palette[label], label=label) for label in order_labels]
+        ax.legend(handles=legend_patches, title="条件", loc='upper right')
+        ax.set_title(title, fontsize=16)
+        ax.set_ylabel(metric_suffix.replace('_', ''), fontsize=14)
+        ax.set_xlabel("条件", fontsize=14)
+        ax.grid(axis='y', linestyle='--', alpha=0.7)
+
+        save_path = os.path.join(output_dir, output_filename)
+        fig.tight_layout()
+        fig.savefig(save_path, dpi=300)
+        print(f"保存完了: {save_path}")
+        saved_files.append(save_path)
+
+    print("\n全被験者箱ひげ図の作成が完了しました。")
+    return saved_files
+
+
 # 後方互換性のためのエイリアス（analys_プレフィックス付き）
 analys_bandpass_filter = bandpass_filter
 analys_ecg_to_rri = ecg_to_rri
 analys_calculate_hrv_indices = calculate_hrv_indices
 analys_run_batch_analysis = run_batch_analysis
 analys_generate_box_plots = generate_box_plots
+analys_generate_all_subjects_box_plots = generate_all_subjects_box_plots

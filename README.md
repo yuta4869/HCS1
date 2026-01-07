@@ -869,6 +869,16 @@ MIT License
 
 ## 📝 Version History
 
+- **v7.11.0** - Advanced analysis features and bug fixes:
+  - **高度解析タブ追加**: 非線形HRV解析（Sample Entropy, DFA, Poincaré）、統計検定（ANOVA, Friedman）、相関分析
+  - **制御メトリクス機能**: 時系列解析でRMSE, MAE, 制御率, 収束率, 立ち上がり時間, 整定時間, オーバーシュートを計算・CSV出力
+  - **ECG解析Time列修正**: 解析区間のオフセットがTime列に反映されるように修正。例：60〜360秒で解析→Time列は60〜360
+  - **時系列解析の時間同期**: ECG解析と同じ解析区間を指定すれば、_result.xlsx・HRセッション・発言ログの全データで時間軸が一致。全て「記録開始からの経過秒数」を基準に計算
+  - **ECG→時系列解析の時間設定連携**: ECG解析で時間区間を指定すると、時系列解析タブに自動反映。「ECG設定から取得」ボタンで手動取得も可能
+  - **解析区間デフォルト値変更**: 60〜360秒に変更（旧：30〜330秒）
+  - **箱ひげ図改善**: 被験者ごと＋全体統合の両方を生成、統合データ（AllSubjects_HRV_Long.xlsx, AllSubjects_HRV_Wide.xlsx）も出力
+  - **ファイル検索修正**: `{subject_id}_Combined_HRV_Analysis.xlsx` 形式に対応
+  - **起動エラー修正**: main.pyの `import queue9` タイポを `import queue` に修正
 - **v7.10.0** - ECG data validation at conversation start (warns if H10 ECG not recording)
 - **v7.9.0** - Battery level display for Polar sensors (Verity Sense & H10)
 - **v7.8.0** - H10 heart rate fallback when Verity Sense connection lost, connection status display (接続断/H10代替/HR断/ECG断)

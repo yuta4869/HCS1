@@ -95,7 +95,9 @@ class TimeseriesAnalysisMixin:
         ttk.Label(time_range_frame, text="秒 〜 終了").pack(side=tk.LEFT)
         self.ts_end_time_var = tk.StringVar(value="")
         ttk.Entry(time_range_frame, textvariable=self.ts_end_time_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(time_range_frame, text="秒 (空欄で全区間)").pack(side=tk.LEFT)
+        ttk.Label(time_range_frame, text="秒").pack(side=tk.LEFT)
+        ttk.Button(time_range_frame, text="ECG設定から取得", command=self._ts_sync_from_ecg).pack(side=tk.LEFT, padx=10)
+        ttk.Label(time_range_frame, text="(空欄で全区間)").pack(side=tk.LEFT)
 
         # グラフオプション
         self.ts_show_reference_var = tk.BooleanVar(value=True)
@@ -210,6 +212,17 @@ class TimeseriesAnalysisMixin:
         self.ts_log_text.config(state=tk.DISABLED)
         self.update_idletasks()
 
+    def _ts_sync_from_ecg(self) -> None:
+        """ECG解析タブの解析区間設定を取得して反映"""
+        try:
+            start_offset = int(self.ecg_window_start_var.get())
+            end_offset = int(self.ecg_window_end_var.get())
+            self.ts_start_time_var.set(str(start_offset))
+            self.ts_end_time_var.set(str(end_offset))
+            self._ts_log(f"ECG設定から取得: {start_offset}〜{end_offset}秒")
+        except (AttributeError, tk.TclError, ValueError) as e:
+            messagebox.showwarning("取得失敗", "ECG解析タブの解析区間設定を取得できませんでした。")
+
     def _ts_run_analysis(self) -> None:
         """時系列解析を実行"""
         input_folder = self.ts_input_folder_var.get()
@@ -319,13 +332,40 @@ class TimeseriesAnalysisMixin:
 
         # 条件別グラフ（HR, RMSSD, SDNN）
         for condition, df in condition_data.items():
+            # _result.xlsxのTime列の最小値（ECG解析のオフセット）を取得
+            time_offset = df['Time'].min() if 'Time' in df.columns else 0.0
+
             # 発言時間帯を取得
             speech_intervals = None
             if show_speech:
                 conv_log_path = self._ts_find_conversation_log(input_folder, subject_id, condition)
                 if conv_log_path:
                     self._ts_log(f"  発言ログ: {os.path.basename(conv_log_path)}")
-                    speech_intervals = self._ts_load_speech_intervals(conv_log_path)
+                    # セッション開始時刻を取得して発言ログの基準にする
+                    session_start_time = self._ts_get_session_start_time(input_folder, subject_id, condition)
+                    speech_intervals = self._ts_load_speech_intervals(conv_log_path, session_start_time)
+
+                    # _result.xlsxのTime列にオフセットがある場合、発言ログの時間にも同じオフセットを適用
+                    # （ECG解析で30秒から開始した場合、発言ログも30秒からの表示になる）
+                    # 注: 発言ログは0秒からの経過時間なので、オフセット分だけ時間がズレている
+                    # そのままで良い（発言ログの時間とECGの時間は同じ基準）
+
+                    # 時間範囲でフィルタリング（指定区間外の発言を除外）
+                    # フィルタリングは_result.xlsxのTime列と同じ範囲（オフセット込み）で行う
+                    if speech_intervals:
+                        # 実際のフィルタリング範囲を決定
+                        filter_start = start_time if start_time is not None else time_offset
+                        filter_end = end_time if end_time is not None else None
+
+                        filtered_intervals = []
+                        for s_start, s_end, role in speech_intervals:
+                            # 指定区間と重なる発言のみ残す
+                            if filter_end is not None and s_start > filter_end:
+                                continue
+                            if s_end < filter_start:
+                                continue
+                            filtered_intervals.append((s_start, s_end, role))
+                        speech_intervals = filtered_intervals
                     self._ts_log(f"    -> {len(speech_intervals)}件の発言を検出")
 
             self._ts_generate_condition_graphs(
@@ -772,6 +812,17 @@ class TimeseriesAnalysisMixin:
                     if conv_log_path:
                         self._ts_log(f"  発言ログ: {os.path.basename(conv_log_path)}")
                         speech_intervals = self._ts_load_speech_intervals(conv_log_path, data_start_time)
+                        # 時間範囲でフィルタリング（指定区間外の発言を除外）
+                        if speech_intervals and (start_time is not None or end_time is not None):
+                            filtered_intervals = []
+                            for s_start, s_end, role in speech_intervals:
+                                # 指定区間と重なる発言のみ残す
+                                if end_time is not None and s_start > end_time:
+                                    continue
+                                if start_time is not None and s_end < start_time:
+                                    continue
+                                filtered_intervals.append((s_start, s_end, role))
+                            speech_intervals = filtered_intervals
                         self._ts_log(f"    -> {len(speech_intervals)}件の発言を検出")
 
                 # グラフ生成
@@ -818,6 +869,62 @@ class TimeseriesAnalysisMixin:
         for filename in os.listdir(folder):
             if pattern.match(filename):
                 return os.path.join(folder, filename)
+
+        return None
+
+    def _ts_get_session_start_time(
+        self,
+        folder: str,
+        subject_id: str,
+        condition: str
+    ) -> Optional[datetime]:
+        """HRセッションファイルまたはECGファイルから記録開始時刻を取得
+
+        Args:
+            folder: 検索フォルダ
+            subject_id: 被験者ID
+            condition: 条件名
+
+        Returns:
+            記録開始時刻（見つからない場合はNone）
+        """
+        from datetime import datetime
+
+        # HRセッションファイルを探す
+        h10_pattern = re.compile(
+            rf"h10_hr_session_{re.escape(subject_id)}_(\d{{8}}_\d{{6}})_{re.escape(condition)}\.csv$",
+            re.IGNORECASE
+        )
+        verity_pattern = re.compile(
+            rf"verity_hr_session_{re.escape(subject_id)}_(\d{{8}}_\d{{6}})_{re.escape(condition)}\.csv$",
+            re.IGNORECASE
+        )
+
+        for filename in os.listdir(folder):
+            filepath = os.path.join(folder, filename)
+            match = h10_pattern.match(filename) or verity_pattern.match(filename)
+            if match:
+                try:
+                    df = pd.read_csv(filepath, nrows=1)
+                    if 'Timestamp' in df.columns:
+                        return pd.to_datetime(df['Timestamp'].iloc[0])
+                except Exception:
+                    pass
+
+        # ECGファイルを探す（フォールバック）
+        ecg_pattern = re.compile(
+            rf"ecg_{re.escape(subject_id)}_\d{{8}}_\d{{6}}_{re.escape(condition)}\.csv$",
+            re.IGNORECASE
+        )
+        for filename in os.listdir(folder):
+            if ecg_pattern.match(filename):
+                filepath = os.path.join(folder, filename)
+                try:
+                    df = pd.read_csv(filepath, nrows=2, skiprows=1, header=None, usecols=[0], names=['timestamp'])
+                    if len(df) > 0:
+                        return pd.to_datetime(df['timestamp'].iloc[0])
+                except Exception:
+                    pass
 
         return None
 

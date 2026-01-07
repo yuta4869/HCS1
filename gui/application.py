@@ -51,6 +51,7 @@ from .ecg_analysis import (
     CONDITION_COLORS,
     run_batch_analysis as analys_run_batch_analysis,
     generate_box_plots as analys_generate_box_plots,
+    generate_all_subjects_box_plots as analys_generate_all_subjects_box_plots,
 )
 from .questionnaire_analysis import (
     Q_CONDITION_ORDER,
@@ -71,9 +72,10 @@ from .questionnaire_analysis_v2 import (
 )
 from .realtime_monitor import RealtimeMonitorMixin
 from .timeseries_analysis import TimeseriesAnalysisMixin
+from .advanced_analysis_tab import AdvancedAnalysisMixin
 
 
-class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
+class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
     """Main application class with Tkinter UI."""
     def __init__(self, master, # Added master parameter
                  prosody_settings: ProsodySettings,
@@ -238,6 +240,10 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         self.questionnaire_v2_tab = ttk.Frame(self.notebook, padding="10")
         self.notebook.add(self.questionnaire_v2_tab, text="アンケート解析(新)")
 
+        # タブ7: 高度解析 - 非線形HRV、統計検定、相関分析
+        self.advanced_analysis_tab = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(self.advanced_analysis_tab, text="高度解析")
+
         # 各タブのUIを構築
         self._setup_conversation_tab()
         self._setup_realtime_monitor_tab()
@@ -245,6 +251,7 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         self._setup_timeseries_analysis_tab()
         self._setup_questionnaire_tab()
         self._setup_questionnaire_v2_tab()
+        self._setup_advanced_analysis_tab()
 
         # マウスホイールスクロールと右クリックメニューのセットアップ
         self._setup_mousewheel_scroll()
@@ -735,8 +742,8 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         window_frame.columnconfigure(1, weight=1)
         window_frame.columnconfigure(3, weight=1)
 
-        self.ecg_window_start_var = tk.DoubleVar(value=30.0)
-        self.ecg_window_end_var = tk.DoubleVar(value=330.0)
+        self.ecg_window_start_var = tk.DoubleVar(value=60.0)
+        self.ecg_window_end_var = tk.DoubleVar(value=360.0)
 
         ttk.Label(window_frame, text="開始 (秒):").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         ttk.Spinbox(
@@ -1244,6 +1251,10 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
             messagebox.showerror("入力エラー", "解析ウィンドウは正の値にしてください。")
             return
 
+        # ECG解析の時間区間を時系列解析にも反映
+        self.ts_start_time_var.set(str(int(start_offset)))
+        self.ts_end_time_var.set(str(int(end_offset)))
+
         self.ecg_run_button.config(state=tk.DISABLED)
         self.ecg_status_var.set("解析を実行中です。完了するまでお待ちください。")
         self.update_idletasks()
@@ -1332,38 +1343,63 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
         threading.Thread(target=run_in_thread, daemon=True).start()
 
     def _generate_ecg_boxplots(self):
-        """箱ひげ図を生成"""
+        """箱ひげ図を生成（被験者ごと＋全体）"""
         selected_conditions = self._get_selected_ecg_conditions()
         if not selected_conditions:
             selected_conditions = list(ANALYS_CONDITION_ORDER)
 
         output_dir = self.ecg_output_dir if self.ecg_output_dir else os.path.join(os.path.dirname(self.ecg_input_dir or "."), "result_batch")
-        combined_file = os.path.join(output_dir, "Combined_HRV_Analysis.xlsx")
 
-        if not os.path.exists(combined_file):
-            subject_dirs = [d for d in os.listdir(output_dir) if os.path.isdir(os.path.join(output_dir, d))] if os.path.isdir(output_dir) else []
-            if not subject_dirs:
-                messagebox.showwarning("ファイル未発見", "Combined_HRV_Analysis.xlsx が見つかりません。先に解析を実行してください。")
-                return
+        if not os.path.isdir(output_dir):
+            messagebox.showwarning("フォルダ未発見", "出力フォルダが見つかりません。先に解析を実行してください。")
+            return
 
-            for subdir in subject_dirs:
-                combined_file = os.path.join(output_dir, subdir, "Combined_HRV_Analysis.xlsx")
-                if os.path.exists(combined_file):
-                    break
-            else:
-                messagebox.showwarning("ファイル未発見", "Combined_HRV_Analysis.xlsx が見つかりません。先に解析を実行してください。")
-                return
+        all_saved_files = []
+        subject_count = 0
 
+        # 1. 被験者ごとの箱ひげ図を生成
+        for subdir in os.listdir(output_dir):
+            subdir_path = os.path.join(output_dir, subdir)
+            if not os.path.isdir(subdir_path):
+                continue
+
+            # Combined_HRV_Analysis.xlsx または {subdir}_Combined_HRV_Analysis.xlsx を探す
+            combined_file = None
+            candidate1 = os.path.join(subdir_path, "Combined_HRV_Analysis.xlsx")
+            candidate2 = os.path.join(subdir_path, f"{subdir}_Combined_HRV_Analysis.xlsx")
+            if os.path.exists(candidate1):
+                combined_file = candidate1
+            elif os.path.exists(candidate2):
+                combined_file = candidate2
+
+            if combined_file:
+                try:
+                    saved = analys_generate_box_plots(
+                        combined_file,
+                        subdir_path,
+                        condition_order=selected_conditions
+                    )
+                    all_saved_files.extend(saved)
+                    subject_count += 1
+                except Exception as exc:
+                    print(f"{subdir}: 箱ひげ図作成エラー: {exc}")
+
+        # 2. 全被験者統合の箱ひげ図を生成
         try:
-            saved_files = analys_generate_box_plots(
-                combined_file,
-                os.path.dirname(combined_file),
+            all_subjects_files = analys_generate_all_subjects_box_plots(
+                output_dir,
                 condition_order=selected_conditions
             )
-            messagebox.showinfo("完了", f"箱ひげ図を作成しました:\n" + "\n".join(saved_files))
-            self.ecg_status_var.set("箱ひげ図を生成しました。")
+            all_saved_files.extend(all_subjects_files)
         except Exception as exc:
-            messagebox.showerror("エラー", f"箱ひげ図の作成に失敗しました。\n{exc}")
+            print(f"全被験者箱ひげ図作成エラー: {exc}")
+
+        if not all_saved_files:
+            messagebox.showwarning("ファイル未発見", "Combined_HRV_Analysis.xlsx が見つかりません。先に解析を実行してください。")
+            return
+
+        messagebox.showinfo("完了", f"箱ひげ図を作成しました:\n- 被験者ごと: {subject_count}名\n- 全体統合: output_dir直下\n\n合計 {len(all_saved_files)} ファイル")
+        self.ecg_status_var.set("箱ひげ図を生成しました。")
 
     def _combine_ecg_subjects(self):
         """全被験者のデータを統合"""
@@ -1382,9 +1418,15 @@ class Application(TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
                 subject_files = []
                 for entry in sorted(os.listdir(output_dir)):
                     subject_dir = os.path.join(output_dir, entry)
+                    if not os.path.isdir(subject_dir):
+                        continue
+                    # 両方のパターンを探す: Combined_HRV_Analysis.xlsx または {subject_id}_Combined_HRV_Analysis.xlsx
                     combined_path = os.path.join(subject_dir, "Combined_HRV_Analysis.xlsx")
+                    combined_path_with_id = os.path.join(subject_dir, f"{entry}_Combined_HRV_Analysis.xlsx")
                     if os.path.isfile(combined_path):
                         subject_files.append((entry, combined_path))
+                    elif os.path.isfile(combined_path_with_id):
+                        subject_files.append((entry, combined_path_with_id))
 
                 if not subject_files:
                     self.after(0, lambda: messagebox.showwarning("統合不可", "統合対象の Combined_HRV_Analysis.xlsx が見つかりません。"))
