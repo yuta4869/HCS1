@@ -13,7 +13,7 @@ import re
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 
 import pandas as pd
@@ -27,6 +27,7 @@ except ImportError:
     pass
 
 from .ecg_analysis import CONDITION_COLORS, ANALYS_CONDITION_ORDER
+from .control_metrics import ControlMetricsAnalyzer, ControlMetrics, save_metrics_to_csv
 
 
 class TimeseriesAnalysisMixin:
@@ -113,9 +114,59 @@ class TimeseriesAnalysisMixin:
         ttk.Checkbutton(param_frame, text="発言時間帯を色付け表示",
                         variable=self.ts_show_speech_var).grid(row=3, column=2, columnspan=2, sticky="w", padx=5, pady=5)
 
+        # --- 制御メトリクス設定 ---
+        metrics_frame = ttk.LabelFrame(main_frame, text="制御メトリクス（目標心拍数ライン表示時のみ有効）", padding="10")
+        metrics_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+        main_frame.rowconfigure(4, weight=1)  # ログエリアのweight更新
+
+        # メトリクス有効化チェックボックス
+        self.ts_calc_metrics_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(metrics_frame, text="制御メトリクスを計算してCSVに保存",
+                        variable=self.ts_calc_metrics_var,
+                        command=self._ts_toggle_metrics_options).grid(row=0, column=0, columnspan=4, sticky="w", padx=5, pady=5)
+
+        # 個別メトリクスのチェックボックス
+        metrics_options_frame = ttk.Frame(metrics_frame)
+        metrics_options_frame.grid(row=1, column=0, columnspan=4, sticky="w", padx=20, pady=5)
+
+        self.ts_metric_rmse_var = tk.BooleanVar(value=True)
+        self.ts_metric_mae_var = tk.BooleanVar(value=True)
+        self.ts_metric_control_rate_var = tk.BooleanVar(value=True)
+        self.ts_metric_convergence_rate_var = tk.BooleanVar(value=True)
+        self.ts_metric_rise_time_var = tk.BooleanVar(value=True)
+        self.ts_metric_settling_time_var = tk.BooleanVar(value=True)
+        self.ts_metric_overshoot_var = tk.BooleanVar(value=True)
+
+        # 2行に分けて配置
+        row1_metrics = [
+            ("RMSE", self.ts_metric_rmse_var),
+            ("MAE", self.ts_metric_mae_var),
+            ("制御率", self.ts_metric_control_rate_var),
+            ("収束率", self.ts_metric_convergence_rate_var),
+        ]
+        row2_metrics = [
+            ("立ち上がり時間", self.ts_metric_rise_time_var),
+            ("整定時間", self.ts_metric_settling_time_var),
+            ("オーバーシュート", self.ts_metric_overshoot_var),
+        ]
+
+        self.ts_metric_checkbuttons = []
+        for col, (text, var) in enumerate(row1_metrics):
+            cb = ttk.Checkbutton(metrics_options_frame, text=text, variable=var)
+            cb.grid(row=0, column=col, sticky="w", padx=10, pady=2)
+            self.ts_metric_checkbuttons.append(cb)
+
+        for col, (text, var) in enumerate(row2_metrics):
+            cb = ttk.Checkbutton(metrics_options_frame, text=text, variable=var)
+            cb.grid(row=1, column=col, sticky="w", padx=10, pady=2)
+            self.ts_metric_checkbuttons.append(cb)
+
+        # 初期状態では個別メトリクスを無効化
+        self._ts_toggle_metrics_options()
+
         # --- 実行ボタン ---
         btn_frame = ttk.Frame(main_frame)
-        btn_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=10)
+        btn_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=10)
 
         self.ts_run_btn = ttk.Button(btn_frame, text="時系列グラフ生成", command=self._ts_run_analysis)
         self.ts_run_btn.pack(side=tk.LEFT, padx=10)
@@ -125,7 +176,7 @@ class TimeseriesAnalysisMixin:
 
         # --- ログ表示エリア ---
         log_frame = ttk.LabelFrame(main_frame, text="ログ", padding="5")
-        log_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
+        log_frame.grid(row=4, column=0, sticky="nsew", padx=5, pady=5)
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
 
@@ -256,6 +307,13 @@ class TimeseriesAnalysisMixin:
         # 発言時間帯の色付けオプション
         show_speech = self.ts_show_speech_var.get()
 
+        # 制御メトリクス計算の有効化チェック
+        calc_metrics = self.ts_calc_metrics_var.get() and show_target and target_hr > 0
+        metrics_results: List[Dict[str, Any]] = []
+
+        if calc_metrics:
+            self._ts_log(f"制御メトリクス計算: 有効 (目標HR: {target_hr} BPM)")
+
         # グラフ生成
         self._ts_log("\n=== グラフ生成 ===")
 
@@ -275,6 +333,18 @@ class TimeseriesAnalysisMixin:
                 reference_hr, target_hr, show_reference, show_target,
                 speech_intervals=speech_intervals
             )
+
+            # 制御メトリクス計算
+            if calc_metrics and 'HR' in df.columns:
+                metrics_result = self._ts_calculate_and_log_metrics(
+                    df['Time'].values,
+                    df['HR'].values,
+                    target_hr,
+                    subject_id,
+                    condition
+                )
+                if metrics_result:
+                    metrics_results.append(metrics_result)
 
         # 全条件統合グラフ
         if generate_combined and len(condition_data) > 1:
@@ -296,6 +366,12 @@ class TimeseriesAnalysisMixin:
             )
         else:
             self._ts_log("HRセッションファイル (h10_hr_session_*.csv, verity_hr_session_*.csv) は見つかりませんでした。")
+
+        # メトリクスをCSVに保存
+        if metrics_results:
+            metrics_csv_path = os.path.join(output_folder, f"{subject_id}_control_metrics.csv")
+            save_metrics_to_csv(metrics_results, metrics_csv_path)
+            self._ts_log(f"\n制御メトリクスを保存: {os.path.basename(metrics_csv_path)}")
 
         self._ts_log("\n=== 解析完了 ===")
         self.ts_progress_label.config(text="完了")
@@ -838,3 +914,80 @@ class TimeseriesAnalysisMixin:
                     assistant_plotted = True
                 else:
                     ax.axvspan(start_sec, end_sec, alpha=0.5, color=color)
+
+    def _ts_toggle_metrics_options(self) -> None:
+        """制御メトリクスオプションの有効/無効を切り替え"""
+        enabled = self.ts_calc_metrics_var.get()
+        state = "normal" if enabled else "disabled"
+        for cb in self.ts_metric_checkbuttons:
+            cb.config(state=state)
+
+    def _ts_get_selected_metrics(self) -> Dict[str, bool]:
+        """選択されたメトリクスの辞書を返す"""
+        return {
+            'rmse': self.ts_metric_rmse_var.get(),
+            'mae': self.ts_metric_mae_var.get(),
+            'control_rate': self.ts_metric_control_rate_var.get(),
+            'convergence_rate': self.ts_metric_convergence_rate_var.get(),
+            'rise_time': self.ts_metric_rise_time_var.get(),
+            'settling_time': self.ts_metric_settling_time_var.get(),
+            'overshoot': self.ts_metric_overshoot_var.get(),
+        }
+
+    def _ts_calculate_and_log_metrics(
+        self,
+        time_data: np.ndarray,
+        hr_data: np.ndarray,
+        target_hr: float,
+        subject_id: str,
+        condition: str,
+        device_type: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """制御メトリクスを計算してログに出力し、結果を返す
+
+        Args:
+            time_data: 時間配列（秒）
+            hr_data: 心拍数配列
+            target_hr: 目標心拍数
+            subject_id: 被験者ID
+            condition: 条件名
+            device_type: デバイスタイプ（H10, Verityなど）。Noneの場合は省略
+
+        Returns:
+            メトリクス辞書（CSV出力用）。メトリクス計算が無効の場合はNone
+        """
+        if not self.ts_calc_metrics_var.get():
+            return None
+
+        if target_hr <= 0:
+            self._ts_log("  警告: 目標心拍数が設定されていないためメトリクスを計算できません。")
+            return None
+
+        analyzer = ControlMetricsAnalyzer()
+        metrics = analyzer.calculate_metrics(time_data, hr_data, target_hr)
+
+        selected = self._ts_get_selected_metrics()
+        metrics_dict = metrics.to_dict(selected)
+
+        # ログ出力
+        self._ts_log(f"  【制御メトリクス】")
+        for key, value in metrics_dict.items():
+            if value is not None:
+                if isinstance(value, float):
+                    self._ts_log(f"    {key}: {value:.2f}")
+                else:
+                    self._ts_log(f"    {key}: {value}")
+            else:
+                self._ts_log(f"    {key}: N/A")
+
+        # CSV出力用の辞書を作成
+        result = {
+            'subject_id': subject_id,
+            'condition': condition,
+        }
+        if device_type:
+            result['device_type'] = device_type
+        result['target_hr'] = target_hr
+        result.update(metrics_dict)
+
+        return result
