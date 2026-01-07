@@ -29,6 +29,10 @@ Logs/
 logs20251222/
 logs20251225/
 
+logs*/
+*.csv
+# *.txt
+
 # IDE settings
 .vscode/
 

@@ -116,16 +116,30 @@ def start_local_llm_server():
         return False
 
     # llama-cpp-pythonのサーバーを起動
-    # python -m llama_cpp.server --model <path> --host <host> --port <port>
-    cmd = [
-        sys.executable,  # 現在のPython実行ファイル
-        "-m", "llama_cpp.server",
-        "--model", config.LOCAL_LLM_MODEL_PATH,
-        "--host", config.LOCAL_LLM_HOST,
-        "--port", str(config.LOCAL_LLM_PORT),
-        "--n_ctx", str(config.LOCAL_LLM_CONTEXT_SIZE),
-        "--n_gpu_layers", str(config.LOCAL_LLM_GPU_LAYERS),
-    ]
+    # 既定は軽量なローカルサーバースクリプトを使う
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    local_server_script = os.path.join(project_root, "local_llm_server.py")
+    if os.path.exists(local_server_script):
+        cmd = [
+            sys.executable,
+            local_server_script,
+            "--model", config.LOCAL_LLM_MODEL_PATH,
+            "--host", config.LOCAL_LLM_HOST,
+            "--port", str(config.LOCAL_LLM_PORT),
+            "--n_ctx", str(config.LOCAL_LLM_CONTEXT_SIZE),
+            "--n_gpu_layers", str(config.LOCAL_LLM_GPU_LAYERS),
+        ]
+    else:
+        # フォールバック: llama_cpp.server を使用
+        cmd = [
+            sys.executable,  # 現在のPython実行ファイル
+            "-m", "llama_cpp.server",
+            "--model", config.LOCAL_LLM_MODEL_PATH,
+            "--host", config.LOCAL_LLM_HOST,
+            "--port", str(config.LOCAL_LLM_PORT),
+            "--n_ctx", str(config.LOCAL_LLM_CONTEXT_SIZE),
+            "--n_gpu_layers", str(config.LOCAL_LLM_GPU_LAYERS),
+        ]
 
     print(f"ローカルLLMサーバーを起動中...")
     print(f"  モデル: {config.LOCAL_LLM_MODEL_PATH}")
@@ -133,11 +147,14 @@ def start_local_llm_server():
 
     try:
         # サブプロセスとしてサーバーを起動（バックグラウンド）
-        # 注: stdout/stderrをDEVNULLにしないとバッファリングでサーバーがブロックする
+        # 注: 出力はログファイルに残す
+        os.makedirs(config.LOG_DIR, exist_ok=True)
+        llm_log_path = os.path.join(config.LOG_DIR, "local_llm_server.log")
+        llm_log_file = open(llm_log_path, "a", encoding="utf-8")
         _llm_server_process = subprocess.Popen(
             cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=llm_log_file,
+            stderr=llm_log_file,
             preexec_fn=os.setsid if sys.platform != 'win32' else None
         )
 
