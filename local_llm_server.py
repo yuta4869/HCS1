@@ -65,6 +65,14 @@ class LLMHTTPHandler(BaseHTTPRequestHandler):
         self._json_response(404, {"error": {"message": f"Unknown path: {self.path}"}})
 
     def do_POST(self) -> None:  # noqa: N802
+        if self.path == "/shutdown":
+            if self.client_address[0] not in ("127.0.0.1", "::1"):
+                self._json_response(403, {"error": {"message": "Forbidden"}})
+                return
+            self._json_response(200, {"status": "shutting down"})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
+            return
+
         if self.path != "/v1/chat/completions":
             self._json_response(404, {"error": {"message": f"Unknown path: {self.path}"}})
             return

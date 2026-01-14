@@ -31,6 +31,7 @@ except ImportError:
     pass
 
 import openai
+import requests
 
 import config
 from logger_utils import LoggingThread, get_timestamped_log_path, format_subject_id_for_filename
@@ -1937,8 +1938,23 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         """LLM選択が変更された時の処理"""
         use_local = self.use_local_llm_var.get()
         config.USE_LOCAL_LLM = use_local
+        if not use_local:
+            self._stop_local_llm_server()
         self._reinitialize_llm_client()
         self._update_llm_status()
+
+    def _stop_local_llm_server(self) -> None:
+        """ローカルLLMサーバーを停止する(可能なら)"""
+        url = f"http://{config.LOCAL_LLM_HOST}:{config.LOCAL_LLM_PORT}/shutdown"
+        try:
+            response = requests.post(url, timeout=2)
+            if response.status_code == 200:
+                print("ローカルLLMサーバーを停止しました。")
+                self._log_to_console("ローカルLLMサーバーを停止しました。")
+            else:
+                print(f"ローカルLLM停止要求に失敗しました (status: {response.status_code})")
+        except requests.exceptions.RequestException as e:
+            print(f"ローカルLLM停止要求エラー: {e}")
 
     def _on_api_key_change(self, *_) -> None:
         """APIキーが変更された時の処理"""
