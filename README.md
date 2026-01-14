@@ -8,7 +8,7 @@ A conversation system that integrates heart rate monitoring with speech prosody 
 
 ## 📥 ダウンロード / Download
 
-### 最新版 (v7.10.0)
+### 最新版 (v8.4.1)
 
 **方法1: スタンドアロンアプリ (推奨)**
 
@@ -28,10 +28,10 @@ cd HCS1
 **方法3: 特定バージョンをダウンロード**
 ```bash
 # 最新リリース
-git clone --branch v7.6.0 --depth 1 https://github.com/yuta4869/HCS1.git
+git clone --branch v8.4.1 --depth 1 https://github.com/yuta4869/HCS1.git
 
 # または ZIP でダウンロード
-# https://github.com/yuta4869/HCS1/archive/refs/tags/v7.6.0.zip
+# https://github.com/yuta4869/HCS1/archive/refs/tags/v8.4.1.zip
 ```
 
 ---
@@ -869,7 +869,13 @@ MIT License
 
 ## 📝 Version History
 
-- **v7.11.0** - Advanced analysis features and bug fixes:
+- **v8.4.1** - HRF2 target prosody level feature:
+  - **目標抑揚レベル機能**: HRF2制御で目標心拍数に誤差なく追従した場合の抑揚レベルを任意で設定可能（0.0〜2.0、デフォルト1.0）
+  - **全制御モード対応**: PID, Adaptive, GainScheduled, Robust の全モードで目標抑揚レベルをサポート
+  - **GUI**: HRF2設定に「目標抑揚レベル」チェックボックスとスピンボックスを追加
+  - **設定保存**: 目標抑揚レベルの設定が設定ファイルに保存・読み込みされるように対応
+  - **制御メトリクス修正**: HRセッションファイル（verity_hr_session_*.csv）からメトリクスを計算するように修正
+- **v8.4.0** - Advanced analysis features and bug fixes:
   - **高度解析タブ追加**: 非線形HRV解析（Sample Entropy, DFA, Poincaré）、統計検定（ANOVA, Friedman）、相関分析
   - **制御メトリクス機能**: 時系列解析でRMSE, MAE, 制御率, 収束率, 立ち上がり時間, 整定時間, オーバーシュートを計算・CSV出力
   - **ECG解析Time列修正**: 解析区間のオフセットがTime列に反映されるように修正。例：60〜360秒で解析→Time列は60〜360

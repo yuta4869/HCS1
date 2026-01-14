@@ -186,7 +186,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         return asyncio.ensure_future(coro, loop=self.async_loop)
 
     def setup_ui(self) -> None:
-        self.title(f"心拍数連動AI音声アシスタント (v{datetime.datetime.now().strftime('%Y.%m.%d')})")
+        self.title(f"心拍数連動AI音声アシスタント (v{config.APP_VERSION})")
         self.geometry("950x1000")
         self.minsize(900, 950)
 
