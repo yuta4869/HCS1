@@ -628,12 +628,42 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         self.hrf2_gs_type_label = ttk.Label(self.hrf2_gainschedule_frame, text="---", width=4)
         self.hrf2_gs_type_label.pack(side=tk.LEFT)
 
+        # Row 3.5: 目標抑揚レベル設定
+        self.hrf2_target_prosody_frame = ttk.Frame(hrf2_frame)
+        self.hrf2_target_prosody_frame.grid(row=4, column=0, columnspan=8, sticky=tk.W, pady=2, padx=5)
+
+        # チェックボックスで有効/無効
+        self.hrf2_use_target_prosody_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            self.hrf2_target_prosody_frame, text="目標抑揚レベル:",
+            variable=self.hrf2_use_target_prosody_var,
+            command=self._on_hrf2_target_prosody_toggle
+        ).pack(side=tk.LEFT, padx=(0, 5))
+
+        # 目標抑揚レベル入力 (0.0〜2.0)
+        self.hrf2_target_prosody_var = tk.DoubleVar(value=1.0)
+        self.hrf2_target_prosody_spinbox = ttk.Spinbox(
+            self.hrf2_target_prosody_frame, from_=0.0, to=2.0, increment=0.1, width=5,
+            textvariable=self.hrf2_target_prosody_var,
+            command=self._on_hrf2_target_prosody_change
+        )
+        self.hrf2_target_prosody_spinbox.pack(side=tk.LEFT, padx=(0, 5))
+        self.hrf2_target_prosody_spinbox.bind("<Return>", lambda e: self._on_hrf2_target_prosody_change())
+        self.hrf2_target_prosody_spinbox.bind("<FocusOut>", lambda e: self._on_hrf2_target_prosody_change())
+
+        # 説明ラベル
+        ttk.Label(
+            self.hrf2_target_prosody_frame,
+            text="(誤差0時の抑揚レベル。デフォルト1.0)",
+            foreground="gray"
+        ).pack(side=tk.LEFT)
+
         # 初期表示の切り替え
         self._update_hrf2_param_frames()
 
-        # Row 4: HRF2ステータス表示
+        # Row 5: HRF2ステータス表示
         self.hrf2_status_label = ttk.Label(hrf2_frame, text="HRF2: 無効", foreground="gray", style='Status.TLabel')
-        self.hrf2_status_label.grid(row=4, column=0, columnspan=8, sticky=tk.W, pady=2, padx=5)
+        self.hrf2_status_label.grid(row=5, column=0, columnspan=8, sticky=tk.W, pady=2, padx=5)
 
         row_idx += 1
 
@@ -2135,6 +2165,17 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
                         self.hrf2_target_hr_var.set(target_hr)
                     print(f"  HRF2 Target HR loaded: {target_hr}")
 
+                    # 目標抑揚レベル
+                    target_prosody = hrf2_config.get('target_prosody', controller.target_prosody)
+                    use_target_prosody = hrf2_config.get('use_target_prosody', controller.use_target_prosody)
+                    controller.target_prosody = target_prosody
+                    controller.use_target_prosody = use_target_prosody
+                    if hasattr(self, 'hrf2_target_prosody_var'):
+                        self.hrf2_target_prosody_var.set(target_prosody)
+                    if hasattr(self, 'hrf2_use_target_prosody_var'):
+                        self.hrf2_use_target_prosody_var.set(use_target_prosody)
+                    print(f"  HRF2 Target prosody loaded: {target_prosody} (enabled={use_target_prosody})")
+
                     # 制御モード
                     control_mode_str = hrf2_config.get('control_mode', 'PID')
                     try:
@@ -2218,6 +2259,8 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
                     'ki': controller.config.ki,
                     'kd': controller.config.kd,
                     'target_hr': controller.target_hr,
+                    'target_prosody': controller.target_prosody,
+                    'use_target_prosody': controller.use_target_prosody,
                     'control_mode': controller.control_mode.value,
                     'gain_schedule': {
                         'error_threshold_high': gs.error_threshold_high,
@@ -2922,6 +2965,35 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         except Exception as e:
             print(f"HRF2 GS params error: {e}")
             self.set_status("GS設定エラー", "red")
+
+    def _on_hrf2_target_prosody_toggle(self):
+        """HRF2目標抑揚レベルの有効/無効切り替え"""
+        try:
+            use_target = self.hrf2_use_target_prosody_var.get()
+            self.prosody.set_hrf2_use_target_prosody(use_target)
+            if use_target:
+                target_prosody = self.hrf2_target_prosody_var.get()
+                self.prosody.set_hrf2_target_prosody(target_prosody)
+                self.set_status(f"目標抑揚レベル有効: {target_prosody:.1f}", "blue")
+                self._log_to_console(f"目標抑揚レベル: {target_prosody:.1f} (有効)")
+            else:
+                self.set_status("目標抑揚レベル無効（デフォルト1.0）", "blue")
+                self._log_to_console("目標抑揚レベル: 無効 (デフォルト1.0)")
+        except Exception as e:
+            print(f"HRF2 target prosody toggle error: {e}")
+            self.set_status("目標抑揚レベル切り替えエラー", "red")
+
+    def _on_hrf2_target_prosody_change(self):
+        """HRF2目標抑揚レベルの変更"""
+        try:
+            target_prosody = self.hrf2_target_prosody_var.get()
+            # 範囲チェック
+            target_prosody = max(0.0, min(2.0, target_prosody))
+            self.prosody.set_hrf2_target_prosody(target_prosody)
+            if self.hrf2_use_target_prosody_var.get():
+                self._log_to_console(f"目標抑揚レベル変更: {target_prosody:.1f}")
+        except Exception as e:
+            print(f"HRF2 target prosody change error: {e}")
 
     def on_speaker_selected(self, event=None):
         try:

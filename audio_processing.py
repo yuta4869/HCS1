@@ -277,6 +277,22 @@ class ProsodySettings:
         """HRF2の目標心拍数を取得"""
         return self.hrf2_controller.target_hr
 
+    def set_hrf2_target_prosody(self, target_prosody: float) -> None:
+        """HRF2の目標抑揚レベルを設定"""
+        self.hrf2_controller.target_prosody = target_prosody
+
+    def get_hrf2_target_prosody(self) -> float:
+        """HRF2の目標抑揚レベルを取得"""
+        return self.hrf2_controller.target_prosody
+
+    def set_hrf2_use_target_prosody(self, use: bool) -> None:
+        """HRF2の目標抑揚レベル機能の有効/無効を設定"""
+        self.hrf2_controller.use_target_prosody = use
+
+    def get_hrf2_use_target_prosody(self) -> bool:
+        """HRF2の目標抑揚レベル機能が有効かどうかを取得"""
+        return self.hrf2_controller.use_target_prosody
+
     def set_hrf2_pid_gains(self, kp: float, ki: float, kd: float) -> None:
         """HRF2のPIDゲインを設定"""
         self.hrf2_controller.set_pid_gains(kp, ki, kd)

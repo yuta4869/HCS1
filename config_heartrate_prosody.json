@@ -16,6 +16,8 @@
         "ki": 0.01,
         "kd": 0.0,
         "target_hr": 78.0,
+        "target_prosody": 1.0,
+        "use_target_prosody": false,
         "control_mode": "PID",
         "gain_schedule": {
             "error_threshold_high": 15.0,

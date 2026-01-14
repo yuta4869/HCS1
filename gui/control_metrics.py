@@ -125,13 +125,17 @@ class ControlMetricsAnalyzer:
         within_tolerance = np.abs(error) <= self.tolerance_bpm
         control_rate = np.mean(within_tolerance)
 
-        # 収束率（初期値から目標への到達度）
-        if hr_initial != hr_target:
-            final_hr = np.mean(hr_actual[-n_steady:])
-            convergence_rate = 1 - abs(final_hr - hr_target) / abs(hr_initial - hr_target)
+        # 収束率（初期値から目標への最大到達度）
+        # 最も目標に近づいた値を使用（終盤平均ではなく、最近接値）
+        if abs(hr_initial - hr_target) > 1.0:  # 初期値と目標の差が1BPM以上ある場合
+            # 目標に最も近い心拍数を探す
+            closest_idx = np.argmin(np.abs(hr_actual - hr_target))
+            closest_hr = hr_actual[closest_idx]
+            convergence_rate = 1 - abs(closest_hr - hr_target) / abs(hr_initial - hr_target)
             convergence_rate = max(0, min(1, convergence_rate))
         else:
-            convergence_rate = 1.0
+            # 初期値が既に目標に近い場合は、目標±tolerance_bpm内の維持率で評価
+            convergence_rate = control_rate  # 制御率と同じ値を使用
 
         # 立ち上がり時間
         rise_time = self._calculate_rise_time(time, hr_actual, hr_target, hr_initial)

@@ -322,7 +322,6 @@ class TimeseriesAnalysisMixin:
 
         # 制御メトリクス計算の有効化チェック
         calc_metrics = self.ts_calc_metrics_var.get() and show_target and target_hr > 0
-        metrics_results: List[Dict[str, Any]] = []
 
         if calc_metrics:
             self._ts_log(f"制御メトリクス計算: 有効 (目標HR: {target_hr} BPM)")
@@ -374,17 +373,6 @@ class TimeseriesAnalysisMixin:
                 speech_intervals=speech_intervals
             )
 
-            # 制御メトリクス計算
-            if calc_metrics and 'HR' in df.columns:
-                metrics_result = self._ts_calculate_and_log_metrics(
-                    df['Time'].values,
-                    df['HR'].values,
-                    target_hr,
-                    subject_id,
-                    condition
-                )
-                if metrics_result:
-                    metrics_results.append(metrics_result)
 
         # 全条件統合グラフ
         if generate_combined and len(condition_data) > 1:
@@ -398,20 +386,20 @@ class TimeseriesAnalysisMixin:
         hr_session_files = self._ts_find_hr_session_files(input_folder)
         if hr_session_files:
             self._ts_log(f"検出したHRセッションファイル数: {len(hr_session_files)}")
-            self._ts_generate_hr_session_graphs(
+            metrics_results = self._ts_generate_hr_session_graphs(
                 hr_session_files, output_folder,
                 reference_hr, target_hr, show_reference, show_target,
                 show_speech=show_speech,
-                start_time=start_time, end_time=end_time
+                start_time=start_time, end_time=end_time,
+                calc_metrics=calc_metrics
             )
+            # メトリクスをCSVに保存
+            if metrics_results:
+                metrics_csv_path = os.path.join(output_folder, f"{subject_id}_control_metrics.csv")
+                save_metrics_to_csv(metrics_results, metrics_csv_path)
+                self._ts_log(f"\n制御メトリクスを保存: {os.path.basename(metrics_csv_path)}")
         else:
             self._ts_log("HRセッションファイル (h10_hr_session_*.csv, verity_hr_session_*.csv) は見つかりませんでした。")
-
-        # メトリクスをCSVに保存
-        if metrics_results:
-            metrics_csv_path = os.path.join(output_folder, f"{subject_id}_control_metrics.csv")
-            save_metrics_to_csv(metrics_results, metrics_csv_path)
-            self._ts_log(f"\n制御メトリクスを保存: {os.path.basename(metrics_csv_path)}")
 
         self._ts_log("\n=== 解析完了 ===")
         self.ts_progress_label.config(text="完了")
@@ -755,9 +743,15 @@ class TimeseriesAnalysisMixin:
         show_target: bool,
         show_speech: bool = False,
         start_time: Optional[float] = None,
-        end_time: Optional[float] = None
-    ) -> None:
-        """HRセッションファイルからHRグラフを生成"""
+        end_time: Optional[float] = None,
+        calc_metrics: bool = False
+    ) -> List[Dict[str, Any]]:
+        """HRセッションファイルからHRグラフを生成
+
+        Returns:
+            制御メトリクス計算結果のリスト（calc_metrics=Trueの場合）
+        """
+        metrics_results: List[Dict[str, Any]] = []
         for filepath, device_type, subject_id, timestamp, mode in hr_files:
             self._ts_log(f"読み込み中: {os.path.basename(filepath)}")
             try:
@@ -841,8 +835,22 @@ class TimeseriesAnalysisMixin:
                 )
                 self._ts_log(f"  生成: {filename}")
 
+                # 制御メトリクス計算（Verityセンサーのデータのみ使用）
+                if calc_metrics and target_hr > 0 and device_type == 'Verity':
+                    metrics_result = self._ts_calculate_and_log_metrics(
+                        elapsed_seconds,
+                        hr_values,
+                        target_hr,
+                        subject_id,
+                        mode_normalized
+                    )
+                    if metrics_result:
+                        metrics_results.append(metrics_result)
+
             except Exception as e:
                 self._ts_log(f"  エラー: {e}")
+
+        return metrics_results
 
     def _ts_find_conversation_log(
         self,

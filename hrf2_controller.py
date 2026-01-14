@@ -43,6 +43,10 @@ class HRF2Config:
     # 目標心拍数
     target_hr: float = 70.0
 
+    # 目標抑揚レベル（誤差0の時の抑揚レベル）
+    target_prosody: float = 1.0
+    use_target_prosody: bool = False  # 目標抑揚レベルを使用するか
+
     # 抑揚の出力範囲
     min_output: float = 0.0
     max_output: float = 2.0
@@ -298,7 +302,8 @@ class RobustController:
     def get_target_hr(self) -> float:
         return self._target_hr
 
-    def update(self, current_hr: float, min_output: float, max_output: float) -> Tuple[float, dict]:
+    def update(self, current_hr: float, min_output: float, max_output: float,
+               base_prosody: float = 1.0) -> Tuple[float, dict]:
         """
         頑健制御（MEC）による出力計算
 
@@ -306,6 +311,7 @@ class RobustController:
             current_hr: 現在の心拍数 (BPM)
             min_output: 出力の最小値
             max_output: 出力の最大値
+            base_prosody: ベースとなる抑揚レベル（目標抑揚レベル）
 
         Returns:
             Tuple[float, dict]: (抑揚レベル, デバッグ情報)
@@ -373,8 +379,8 @@ class RobustController:
             self._integral += cfg.ki * effective_error * dt
             self._integral = max(-cfg.integral_max, min(cfg.integral_max, self._integral))
 
-        # 基本制御出力
-        u0 = 1.0 + p_term + self._integral
+        # 基本制御出力（ベースとなる抑揚レベルからの調整）
+        u0 = base_prosody + p_term + self._integral
 
         # === 総合出力 ===
         # u = u0 + u_mec
@@ -403,6 +409,7 @@ class RobustController:
             "effective_error": effective_error,
             "p_term": p_term,
             "integral": self._integral,
+            "base_prosody": base_prosody,
             "u0": u0,
             "u_mec": u_mec,
             "raw_output": raw_output,
@@ -771,7 +778,8 @@ class AdaptiveController:
     def get_target_hr(self) -> float:
         return self._target_hr
 
-    def update(self, current_hr: float, min_output: float, max_output: float) -> Tuple[float, dict]:
+    def update(self, current_hr: float, min_output: float, max_output: float,
+               base_prosody: float = 1.0) -> Tuple[float, dict]:
         """
         適応制御による出力計算
 
@@ -779,6 +787,7 @@ class AdaptiveController:
             current_hr: 現在の心拍数 (BPM)
             min_output: 出力の最小値
             max_output: 出力の最大値
+            base_prosody: ベースとなる抑揚レベル（目標抑揚レベル）
 
         Returns:
             Tuple[float, dict]: (抑揚レベル, デバッグ情報)
@@ -833,8 +842,8 @@ class AdaptiveController:
         else:
             effective_error = control_error
 
-        # 適応ゲインを用いた出力計算
-        raw_output = 1.0 + self._theta * effective_error
+        # 適応ゲインを用いた出力計算（ベースとなる抑揚レベルからの調整）
+        raw_output = base_prosody + self._theta * effective_error
 
         # 出力範囲にクランプ
         output = max(min_output, min(max_output, raw_output))
@@ -862,6 +871,7 @@ class AdaptiveController:
             "tracking_error": tracking_error,
             "control_error": control_error,
             "theta": self._theta,
+            "base_prosody": base_prosody,
             "raw_output": raw_output,
             "output": output
         }
@@ -967,7 +977,8 @@ class GainScheduledController:
             return (kp, ki, kd, "low", gt)
 
     def update(self, current_hr: float, target_hr: float,
-               min_output: float, max_output: float) -> Tuple[float, dict]:
+               min_output: float, max_output: float,
+               base_prosody: float = 1.0) -> Tuple[float, dict]:
         """
         ゲインスケジューリング制御による出力計算
 
@@ -976,6 +987,7 @@ class GainScheduledController:
             target_hr: 目標心拍数 (BPM)
             min_output: 出力の最小値
             max_output: 出力の最大値
+            base_prosody: ベースとなる抑揚レベル（目標抑揚レベル）
 
         Returns:
             Tuple[float, dict]: (抑揚レベル, デバッグ情報)
@@ -1025,8 +1037,8 @@ class GainScheduledController:
             derivative = (effective_error - self._last_error) / dt
             d_term = self._current_kd * derivative
 
-        # PID出力（ベース1.0からの調整）
-        raw_output = 1.0 + p_term + i_term + d_term
+        # PID出力（ベースとなる抑揚レベルからの調整）
+        raw_output = base_prosody + p_term + i_term + d_term
 
         # 出力範囲にクランプ
         output = max(min_output, min(max_output, raw_output))
@@ -1050,6 +1062,7 @@ class GainScheduledController:
             "p_term": p_term,
             "i_term": i_term,
             "d_term": d_term,
+            "base_prosody": base_prosody,
             "raw_output": raw_output,
             "output": output,
             "integral": self._integral
@@ -1160,6 +1173,24 @@ class HRF2Controller:
         self._robust_controller.set_target_hr(self.config.target_hr)
         print(f"HRF2 target HR set to {self.config.target_hr} BPM")
 
+    @property
+    def target_prosody(self) -> float:
+        return self.config.target_prosody
+
+    @target_prosody.setter
+    def target_prosody(self, value: float) -> None:
+        self.config.target_prosody = max(0.0, min(2.0, value))
+        print(f"HRF2 target prosody set to {self.config.target_prosody}")
+
+    @property
+    def use_target_prosody(self) -> bool:
+        return self.config.use_target_prosody
+
+    @use_target_prosody.setter
+    def use_target_prosody(self, value: bool) -> None:
+        self.config.use_target_prosody = value
+        print(f"HRF2 use_target_prosody set to {self.config.use_target_prosody}")
+
     def reset(self) -> None:
         """制御状態をリセット（全モード）"""
         # PID状態リセット
@@ -1242,8 +1273,11 @@ class HRF2Controller:
             derivative = (error - self._last_error) / dt
             d_term = self.config.kd * derivative
 
-        # PID出力（ベース1.0からの調整）
-        raw_output = 1.0 + p_term + i_term + d_term
+        # ベースとなる抑揚レベル（目標抑揚レベル機能が有効な場合はその値、無効なら1.0）
+        base_prosody = self.config.target_prosody if self.config.use_target_prosody else 1.0
+
+        # PID出力（ベースからの調整）
+        raw_output = base_prosody + p_term + i_term + d_term
 
         # 出力範囲にクランプ
         output = max(self.config.min_output,
@@ -1263,6 +1297,7 @@ class HRF2Controller:
             "p_term": p_term,
             "i_term": i_term,
             "d_term": d_term,
+            "base_prosody": base_prosody,
             "raw_output": raw_output,
             "output": output,
             "integral": self._integral
@@ -1272,10 +1307,13 @@ class HRF2Controller:
 
     def _update_adaptive(self, current_hr: float) -> Tuple[float, dict]:
         """適応制御による出力計算"""
+        # ベースとなる抑揚レベル
+        base_prosody = self.config.target_prosody if self.config.use_target_prosody else 1.0
         output, debug_info = self._adaptive_controller.update(
             current_hr,
             self.config.min_output,
-            self.config.max_output
+            self.config.max_output,
+            base_prosody
         )
         self._last_output = output
         debug_info["enabled"] = True
@@ -1283,11 +1321,14 @@ class HRF2Controller:
 
     def _update_gain_scheduled(self, current_hr: float) -> Tuple[float, dict]:
         """ゲインスケジューリング制御による出力計算"""
+        # ベースとなる抑揚レベル
+        base_prosody = self.config.target_prosody if self.config.use_target_prosody else 1.0
         output, debug_info = self._gain_scheduled_controller.update(
             current_hr,
             self.config.target_hr,
             self.config.min_output,
-            self.config.max_output
+            self.config.max_output,
+            base_prosody
         )
         self._last_output = output
         debug_info["enabled"] = True
@@ -1295,10 +1336,13 @@ class HRF2Controller:
 
     def _update_robust(self, current_hr: float) -> Tuple[float, dict]:
         """H∞ロバスト制御による出力計算"""
+        # ベースとなる抑揚レベル
+        base_prosody = self.config.target_prosody if self.config.use_target_prosody else 1.0
         output, debug_info = self._robust_controller.update(
             current_hr,
             self.config.min_output,
-            self.config.max_output
+            self.config.max_output,
+            base_prosody
         )
         self._last_output = output
         debug_info["enabled"] = True
