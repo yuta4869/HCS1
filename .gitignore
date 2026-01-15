@@ -18,6 +18,8 @@ test_audio/
 *.mp4
 *.mp3
 *.pdf
+*.xlsx
+*.csv
 
 # Model files and cache
 *.gguf

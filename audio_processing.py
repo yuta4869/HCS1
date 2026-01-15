@@ -140,15 +140,15 @@ class ProsodySettings:
     def _generate_sinusoidal_sequence(self) -> List[float]:
         """抑揚倍率を 1.0 → 2.0 → 0.0 付近 → 1.0 とゆっくり変化させるための値列を作る。"""
         seq: List[float] = []
-        # 上昇 1.0 → 2.0 (0.1 刻み, 11 個)
-        for i in range(11):
-            seq.append(round(1.0 + i * 0.1, 1))
-        # 下降 1.9 → -0.1 (0.1 刻み, 20 個) ただし後で範囲内に切り詰める
-        for i in range(20):
-            seq.append(round(1.9 - i * 0.1, 1))
-        # 下から 0.1 → 0.9 へ戻る (0.1 刻み, 9 個)
-        for i in range(9):
-            seq.append(round(0.1 + i * 0.1, 1))
+        # 上昇 1.0 → 2.0 (0.2 刻み, 6 個)
+        for i in range(6):
+            seq.append(round(1.0 + i * 0.2, 1))
+        # 下降 1.8 → 0.0 (0.2 刻み, 10 個)
+        for i in range(10):
+            seq.append(round(1.8 - i * 0.2, 1))
+        # 下から 0.2 → 0.8 へ戻る (0.2 刻み, 4 個)
+        for i in range(4):
+            seq.append(round(0.2 + i * 0.2, 1))
         return seq or [1.0]
 
     def get_next_sinusoidal_intonation(self) -> float:
