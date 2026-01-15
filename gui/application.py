@@ -3498,9 +3498,9 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
 
             while self.is_conversing and not self.audio.stop_event.is_set():
                 self.set_status("話してください...", "blue")
+                self.after(0, lambda: self._set_status_display_prompt("話してください"))
 
                 # 録音（ver3.10方式: 一旦ファイルに保存）
-                self.after(0, lambda: self._set_status_display_prompt("聞き取り中..."))
                 recorded_successfully, user_rec_start, user_rec_end = self.audio.record_audio("input.wav")
 
                 if self.audio.stop_event.is_set() or not self.is_conversing: break

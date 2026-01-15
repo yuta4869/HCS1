@@ -734,7 +734,10 @@ class AudioProcessor:
                         if not logged_recording_start:
                             print("Recording started...")
                             logged_recording_start = True
-                        if self.app: self.app.after(0, lambda: self.app.set_status("Recording...", "orange"))
+                        if self.app:
+                            self.app.after(0, lambda: self.app.set_status("Recording...", "orange"))
+                            if hasattr(self.app, '_set_status_display_prompt'):
+                                self.app.after(0, lambda: self.app._set_status_display_prompt("聞き取り中..."))
 
                     if is_recording_active:
                         recorded_chunks.append(audio_chunk)
