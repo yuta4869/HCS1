@@ -8,7 +8,7 @@ A conversation system that integrates heart rate monitoring with speech prosody 
 
 ## 📥 ダウンロード / Download
 
-### 最新版 (v8.5.1)
+### 最新版 (v8.6.0)
 
 **方法1: スタンドアロンアプリ (推奨)**
 

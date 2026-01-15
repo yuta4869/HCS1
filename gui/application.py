@@ -3500,6 +3500,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
                 self.set_status("話してください...", "blue")
 
                 # 録音（ver3.10方式: 一旦ファイルに保存）
+                self.after(0, lambda: self._set_status_display_prompt("聞き取り中..."))
                 recorded_successfully, user_rec_start, user_rec_end = self.audio.record_audio("input.wav")
 
                 if self.audio.stop_event.is_set() or not self.is_conversing: break
@@ -3596,8 +3597,9 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
                 if self.audio.stop_event.is_set() or not self.is_conversing: break
                 self.set_status("音声を合成・再生中...", "green")
                 self.after(0, lambda ai_resp=assistant_response_text: self._update_ai_speech_display(ai_resp))
+                self.after(0, lambda: self._set_status_display_prompt("発話中..."))
                 self._log_to_console("VOICEVOXでの音声合成開始。")
-                
+
                 tts_played_successfully, assistant_playback_start, assistant_playback_end = self.audio.text_to_speech(assistant_response_text, "output.wav")
                 
                 self.conversation_manager.add_message("assistant", assistant_response_text, start_time=assistant_playback_start, end_time=assistant_playback_end)
