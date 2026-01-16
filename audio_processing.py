@@ -1109,27 +1109,29 @@ class AudioProcessor:
                 if result.returncode != 0:
                     print(f"afplay error: {result.stderr}")
                     raise RuntimeError(f"afplay failed: {result.stderr}")
+            elif platform.system() == "Linux":
+                # Linux: aplayコマンドを使用（sounddeviceのunderrun問題を回避）
+                result = subprocess.run(
+                    ["aplay", "-q", filename],
+                    capture_output=True,
+                    text=True
+                )
+                if result.returncode != 0:
+                    print(f"aplay error: {result.stderr}")
+                    # aplayが失敗した場合はsounddeviceにフォールバック
+                    raise FileNotFoundError("aplay failed")
             else:
-                # その他のOS: sounddeviceを使用（Linuxはバッファ設定でunderrun対策）
+                # Windows等: sounddeviceを使用
                 data, samplerate = sf.read(filename, dtype='float32')
                 sd.stop()
-                # Linuxではblocksize/latencyを明示的に指定してunderrunを防ぐ
-                import platform
-                if platform.system() == "Linux":
-                    sd.play(data, samplerate, blocksize=config.AUDIO_CHUNK_SIZE, latency=config.AUDIO_LATENCY)
-                else:
-                    sd.play(data, samplerate)
+                sd.play(data, samplerate)
                 sd.wait()
         except FileNotFoundError:
-            # afplayが見つからない場合はsounddeviceにフォールバック
-            print("afplay not found, falling back to sounddevice")
+            # aplay/afplayが見つからない場合はsounddeviceにフォールバック
+            print("System audio player not found, falling back to sounddevice")
             data, samplerate = sf.read(filename, dtype='float32')
             sd.stop()
-            import platform
-            if platform.system() == "Linux":
-                sd.play(data, samplerate, blocksize=config.AUDIO_CHUNK_SIZE, latency=config.AUDIO_LATENCY)
-            else:
-                sd.play(data, samplerate)
+            sd.play(data, samplerate)
             sd.wait()
         except Exception as e:
             print(f"Error during audio playback: {e}")
