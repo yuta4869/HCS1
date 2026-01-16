@@ -1111,26 +1111,35 @@ class AudioProcessor:
                     raise RuntimeError(f"afplay failed: {result.stderr}")
             elif platform.system() == "Linux":
                 # Linux: paplay（PulseAudio）を優先、なければaplayにフォールバック
-                import shutil
-                if shutil.which("paplay"):
+                # キャッシュされたコマンドを使用（初回のみ検索）
+                if not hasattr(self, '_linux_audio_cmd'):
+                    import shutil
+                    if shutil.which("paplay"):
+                        self._linux_audio_cmd = "paplay"
+                    elif shutil.which("aplay"):
+                        self._linux_audio_cmd = "aplay"
+                    else:
+                        self._linux_audio_cmd = None
+
+                if self._linux_audio_cmd == "paplay":
+                    # paplay: --latency-msecでバッファサイズを増やしてノイズ軽減
                     result = subprocess.run(
-                        ["paplay", filename],
-                        capture_output=True,
-                        text=True
+                        ["paplay", "--latency-msec=100", filename],
+                        stderr=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL
                     )
                     if result.returncode != 0:
-                        print(f"paplay error: {result.stderr}")
                         raise FileNotFoundError("paplay failed")
-                else:
-                    # PulseAudioがない場合はaplayを使用（バッファ設定付き）
+                elif self._linux_audio_cmd == "aplay":
                     result = subprocess.run(
                         ["aplay", "-q", "--buffer-size=65536", filename],
-                        capture_output=True,
-                        text=True
+                        stderr=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL
                     )
                     if result.returncode != 0:
-                        print(f"aplay error: {result.stderr}")
                         raise FileNotFoundError("aplay failed")
+                else:
+                    raise FileNotFoundError("No audio player found")
             else:
                 # Windows等: sounddeviceを使用
                 data, samplerate = sf.read(filename, dtype='float32')
