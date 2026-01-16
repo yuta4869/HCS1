@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 import re
-from typing import Optional, Any, List, Dict, Awaitable
+from typing import Optional, Any, List, Dict, Awaitable, Tuple
 from collections import defaultdict
 from pathlib import Path
 
@@ -3154,7 +3154,14 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
 
         self.is_measuring_baseline = True
         self._update_button_states()
-        self.set_status(f"基準心拍数を計測中 ({duration_s}秒)... しばらくお待ちください。", "blue")
+
+        # 基準計測用の状態を初期化
+        self._baseline_duration = duration_s
+        self._baseline_remaining = duration_s
+        self._baseline_start_time = datetime.datetime.now()
+        self._baseline_hr_log: List[Tuple[str, float, int]] = []  # (timestamp, elapsed, hr)
+
+        self.set_status(f"基準心拍数を計測中... 残り {duration_s} 秒", "blue")
         self._log_to_console(f"基準心拍数計測開始 ({duration_s}秒)")
         if not self.hr_monitor.start_baseline_measurement(duration_s):
             self.set_status("基準心拍数計測の開始に失敗しました", "red")
@@ -3162,12 +3169,39 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             self.is_measuring_baseline = False
             self._update_button_states()
             return
-        self.after(duration_s * 1000, self._finish_baseline_measurement)
+
+        # 1秒ごとに残り時間を更新
+        self._update_baseline_countdown()
+
+    def _update_baseline_countdown(self):
+        """基準HR計測中のカウントダウンと心拍数ログ"""
+        if not self.is_measuring_baseline:
+            return
+
+        # 経過時間を計算
+        elapsed = (datetime.datetime.now() - self._baseline_start_time).total_seconds()
+        remaining = max(0, self._baseline_duration - int(elapsed))
+
+        # 現在の心拍数を取得してログ
+        current_hr = self.hr_monitor.get_current_hr()
+        if current_hr > 0:
+            timestamp_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+            self._baseline_hr_log.append((timestamp_str, elapsed, current_hr))
+
+        if remaining > 0:
+            self.set_status(f"基準心拍数を計測中... 残り {remaining} 秒", "blue")
+            self.after(1000, self._update_baseline_countdown)
+        else:
+            self._finish_baseline_measurement()
 
     def _finish_baseline_measurement(self):
         if not self.is_measuring_baseline:
             return
         median_hr = self.hr_monitor.stop_baseline_measurement()
+
+        # CSVに保存
+        self._save_baseline_hr_csv(median_hr)
+
         if median_hr is not None:
             self.hr_monitor.set_reference_hr(median_hr)
             self.reference_hr_var.set(str(median_hr))
@@ -3178,6 +3212,37 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             self._log_to_console("基準心拍数計測完了、中央値計算失敗")
         self.is_measuring_baseline = False
         self._update_button_states()
+
+    def _save_baseline_hr_csv(self, median_hr: Optional[int]) -> None:
+        """基準HR計測中の心拍数時系列データをCSVに保存"""
+        if not hasattr(self, '_baseline_hr_log') or not self._baseline_hr_log:
+            self._log_to_console("基準HR CSV: 保存するデータがありません")
+            return
+
+        try:
+            import csv
+            os.makedirs(config.LOG_DIR, exist_ok=True)
+
+            subject_id = self._get_sanitized_subject_id() or "unknown"
+            timestamp = self._baseline_start_time.strftime("%Y%m%d_%H%M%S")
+
+            filepath = config.BASELINE_HR_CSV_TEMPLATE.format(
+                subject_id=subject_id,
+                timestamp=timestamp
+            )
+
+            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                # ヘッダー: 中央値も記録
+                writer.writerow(["Timestamp", "Elapsed (sec)", "HR (bpm)", "Median HR (result)"])
+                for i, (ts, elapsed, hr) in enumerate(self._baseline_hr_log):
+                    # 最初の行にのみ中央値を記録
+                    median_val = median_hr if i == 0 and median_hr is not None else ""
+                    writer.writerow([ts, f"{elapsed:.2f}", hr, median_val])
+
+            self._log_to_console(f"基準HR CSV保存完了: {filepath}")
+        except Exception as e:
+            self._log_to_console(f"基準HR CSV保存エラー: {e}")
 
     def _update_ai_speech_display(self, text: str):
         if self.status_display_window and self.status_display_window.winfo_exists() and self.status_window_visible:

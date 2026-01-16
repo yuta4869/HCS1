@@ -145,6 +145,7 @@ H10_ECG_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_ecg_session_{subject_i
 H10_HR_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_hr_session_{subject_id}_{session_timestamp}_{mode}.csv")
 H10_SDNN_SESSION_CSV_TEMPLATE = os.path.join(LOG_DIR, "h10_sdnn_session_{subject_id}_{session_timestamp}_{mode}.csv")
 INTERACTION_EVENT_LOG_FILE_TEMPLATE = os.path.join(LOG_DIR, "interaction_events_{subject_id}_{session_timestamp}_{mode}.csv")
+BASELINE_HR_CSV_TEMPLATE = os.path.join(LOG_DIR, "baseline_hr_{subject_id}_{timestamp}.csv")
 
 # --- API and Service URLs ---
 VOICEVOX_URL = "http://localhost:50021"
