@@ -1,7 +1,7 @@
 {
-    "reference_hr": 65,
+    "reference_hr": 62,
     "prosody": {
-        "intonation": 1.0,
+        "intonation": 1.7100000000000002,
         "pitch": 0.0,
         "speed": 1.0,
         "energy": 1.0,
@@ -14,8 +14,10 @@
     "hrf2": {
         "kp": 0.05,
         "ki": 0.00085,
+        "kp": 0.05,
+        "ki": 0.00085,
         "kd": 0.0,
-        "target_hr": 79.2,
+        "target_hr": 68.2,
         "target_prosody": 1.3,
         "use_target_prosody": true,
         "control_mode": "PID",
