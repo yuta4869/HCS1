@@ -3443,8 +3443,10 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
                 print("  会話処理スレッドは正常に終了しました。")
         elif thread_to_join is threading.current_thread():
             print("  `stop_conversation` was called from within the conversation thread. Skipping self-join.")
-        
+
         self.processing_thread = None
+        # スレッドが終了しなかった場合でもis_processingをリセット（ボタン状態の更新のため）
+        self.is_processing = False
 
         # ビデオ録画を停止
         if self.video_recorder.is_recording:
