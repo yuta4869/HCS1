@@ -1,7 +1,7 @@
 # config.py
 
 # --- Application Version ---
-APP_VERSION = "8.6.1"
+APP_VERSION = "8.9.0"
 
 import os
 import sys # resource_path のために追加

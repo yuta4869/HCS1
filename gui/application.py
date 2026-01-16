@@ -324,12 +324,20 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         self.connect_button = ttk.Button(hr_frame, text="センサー類 接続", command=self.connect_devices, width=12)
         self.connect_button.grid(row=0, column=4, rowspan=2, padx=5, pady=5, sticky=tk.W)
 
+        # 個別切断ボタン
+        disconnect_frame = ttk.Frame(hr_frame)
+        disconnect_frame.grid(row=0, column=5, rowspan=2, padx=5, pady=5, sticky=tk.W)
+        self.disconnect_verity_button = ttk.Button(disconnect_frame, text="Verity切断", command=self._disconnect_verity, width=10, state=tk.DISABLED)
+        self.disconnect_verity_button.pack(side=tk.TOP, pady=1)
+        self.disconnect_h10_button = ttk.Button(disconnect_frame, text="H10切断", command=self._disconnect_h10, width=10, state=tk.DISABLED)
+        self.disconnect_h10_button.pack(side=tk.TOP, pady=1)
+
         self.hr_label = ttk.Label(hr_frame, text="Verity Sense: -- BPM | H10: -- BPM", style='Bold.TLabel')
-        self.hr_label.grid(row=2, column=0, columnspan=5, pady=(10,2), padx=5, sticky=tk.W)
+        self.hr_label.grid(row=2, column=0, columnspan=6, pady=(10,2), padx=5, sticky=tk.W)
         self.hr_status_label = ttk.Label(hr_frame, text="Verity Sense: 未接続", foreground="red", style='Status.TLabel')
-        self.hr_status_label.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=2, padx=5)
+        self.hr_status_label.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=2, padx=5)
         self.h10_status_label = ttk.Label(hr_frame, text="H10: 未接続", foreground="red", style='Status.TLabel')
-        self.h10_status_label.grid(row=3, column=2, columnspan=3, sticky=tk.W, pady=2, padx=5)
+        self.h10_status_label.grid(row=3, column=3, columnspan=3, sticky=tk.W, pady=2, padx=5)
         row_idx += 1
 
         # --- Session Information Frame ---
@@ -2616,7 +2624,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
 
     async def _disconnect_devices_async(self) -> None:
         self.connect_button.config(text="切断中...", state=tk.DISABLED)
-        
+
         # Concurrently disconnect both devices
         await asyncio.gather(
             self.hr_monitor.stop_monitoring_async(),
@@ -2625,6 +2633,56 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         )
         self.set_status("全センサー切断完了", "green")
         self.audio.reset_hfb_state()
+        self._update_button_states()
+
+    def _disconnect_verity(self) -> None:
+        """Verity Senseのみを切断"""
+        if self.is_conversing or self.is_processing or self.is_measuring_baseline:
+            self.set_status("処理中はセンサーの切断はできません", "orange")
+            return
+        if not self.hr_monitor.is_connected:
+            self.set_status("Verity Senseは接続されていません", "orange")
+            return
+
+        try:
+            self.disconnect_verity_button.config(state=tk.DISABLED)
+            future = self.run_coroutine(self._disconnect_verity_async())
+            future.add_done_callback(
+                lambda fut: fut.exception() and print(f"[AsyncLoop] Verity disconnect error: {fut.exception()}")
+            )
+        except RuntimeError as e:
+            self.set_status(f"Verity切断に失敗しました: {e}", "red")
+            self._update_button_states()
+
+    async def _disconnect_verity_async(self) -> None:
+        self.set_status("Verity Sense 切断中...", "orange")
+        await self.hr_monitor.stop_monitoring_async()
+        self.set_status("Verity Sense 切断完了", "green")
+        self._update_button_states()
+
+    def _disconnect_h10(self) -> None:
+        """H10のみを切断"""
+        if self.is_conversing or self.is_processing or self.is_measuring_baseline:
+            self.set_status("処理中はセンサーの切断はできません", "orange")
+            return
+        if not self.h10_monitor.is_connected:
+            self.set_status("H10は接続されていません", "orange")
+            return
+
+        try:
+            self.disconnect_h10_button.config(state=tk.DISABLED)
+            future = self.run_coroutine(self._disconnect_h10_async())
+            future.add_done_callback(
+                lambda fut: fut.exception() and print(f"[AsyncLoop] H10 disconnect error: {fut.exception()}")
+            )
+        except RuntimeError as e:
+            self.set_status(f"H10切断に失敗しました: {e}", "red")
+            self._update_button_states()
+
+    async def _disconnect_h10_async(self) -> None:
+        self.set_status("H10 切断中...", "orange")
+        await self.h10_monitor.stop_monitoring_async()
+        self.set_status("H10 切断完了", "green")
         self._update_button_states()
 
     def update_reference_hr(self, event=None):
@@ -3131,6 +3189,12 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             save_cfg_btn_state = tk.DISABLED if is_any_busy_state else tk.NORMAL
             if hasattr(self, 'save_config_button'): self.save_config_button.config(state=save_cfg_btn_state)
             if hasattr(self, 'toggle_status_window_button'): self.toggle_status_window_button.config(state=tk.NORMAL)
+
+            # 個別切断ボタンの状態更新
+            verity_disconnect_state = tk.NORMAL if self.hr_monitor.is_connected and not is_any_busy_state else tk.DISABLED
+            h10_disconnect_state = tk.NORMAL if self.h10_monitor.is_connected and not is_any_busy_state else tk.DISABLED
+            if hasattr(self, 'disconnect_verity_button'): self.disconnect_verity_button.config(state=verity_disconnect_state)
+            if hasattr(self, 'disconnect_h10_button'): self.disconnect_h10_button.config(state=h10_disconnect_state)
         except tk.TclError:
             pass
         except Exception as e_upd_btn:

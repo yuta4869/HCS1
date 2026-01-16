@@ -88,9 +88,11 @@ class RealtimeMonitorMixin:
         graph_frame.rowconfigure(2, weight=1)
 
         # matplotlib Figure作成（3つのサブプロット）
+        # tight_layout=Falseで固定レイアウト、subplots_adjustで余白を固定
         self.monitor_fig, (self.hr_ax, self.ecg_ax, self.hrv_ax) = plt.subplots(
-            3, 1, figsize=(10, 8), tight_layout=True
+            3, 1, figsize=(10, 8), tight_layout=False
         )
+        self.monitor_fig.subplots_adjust(left=0.10, right=0.95, top=0.95, bottom=0.08, hspace=0.35)
 
         # 心拍数グラフ設定
         self.hr_ax.set_title("心拍数 (Heart Rate)", fontsize=12)
@@ -369,15 +371,19 @@ class RealtimeMonitorMixin:
         if self.hr_times:
             self.hr_line.set_data(self.hr_times, self.hr_values)
             self.hr_ax.set_xlim(max(0, elapsed - window_size), elapsed + 1)
+            hr_min = min(self.hr_values) - 10 if self.hr_values else 50
+            hr_max = max(self.hr_values) + 10 if self.hr_values else 120
 
             # 目標心拍数ラインを更新（常に表示）
             target_hr = self._get_hrf2_target_hr()
             if target_hr is not None:
                 self.target_hr_line.set_ydata([target_hr, target_hr])
                 self.target_hr_display_label.config(text=f"目標HR: {target_hr:.0f} bpm")
+                # Y軸範囲を目標値も含めて調整
+                hr_min = min(hr_min, target_hr - 10)
+                hr_max = max(hr_max, target_hr + 10)
 
-            # Y軸は固定範囲（50-150 bpm）
-            self.hr_ax.set_ylim(50, 150)
+            self.hr_ax.set_ylim(hr_min, hr_max)
 
     def _update_ecg_graph(self, elapsed: float) -> None:
         """ECGグラフを更新"""
@@ -386,16 +392,20 @@ class RealtimeMonitorMixin:
             ecg_window = 5
             self.ecg_line.set_data(self.ecg_times, self.ecg_values)
             self.ecg_ax.set_xlim(max(0, elapsed - ecg_window), elapsed + 0.5)
-            # Y軸は固定範囲（-1000〜1000 μV）
-            self.ecg_ax.set_ylim(-1000, 1000)
+            if self.ecg_values:
+                ecg_min = min(self.ecg_values)
+                ecg_max = max(self.ecg_values)
+                margin = max(100, (ecg_max - ecg_min) * 0.1)
+                self.ecg_ax.set_ylim(ecg_min - margin, ecg_max + margin)
 
     def _update_hrv_graph(self, elapsed: float, window_size: int) -> None:
         """HRVグラフを更新"""
         if self.hrv_times:
             self.hrv_line.set_data(self.hrv_times, self.hrv_values)
             self.hrv_ax.set_xlim(max(0, elapsed - window_size), elapsed + 1)
-            # Y軸は固定範囲（0-200 ms）
-            self.hrv_ax.set_ylim(0, 200)
+            hrv_min = max(0, min(self.hrv_values) - 10) if self.hrv_values else 0
+            hrv_max = max(self.hrv_values) + 20 if self.hrv_values else 100
+            self.hrv_ax.set_ylim(hrv_min, hrv_max)
 
     def _trim_buffer(self, times: List[float], values: List[float], min_time: float) -> None:
         """バッファから古いデータを削除"""
