@@ -1110,16 +1110,27 @@ class AudioProcessor:
                     print(f"afplay error: {result.stderr}")
                     raise RuntimeError(f"afplay failed: {result.stderr}")
             elif platform.system() == "Linux":
-                # Linux: aplayコマンドを使用（sounddeviceのunderrun問題を回避）
-                result = subprocess.run(
-                    ["aplay", "-q", filename],
-                    capture_output=True,
-                    text=True
-                )
-                if result.returncode != 0:
-                    print(f"aplay error: {result.stderr}")
-                    # aplayが失敗した場合はsounddeviceにフォールバック
-                    raise FileNotFoundError("aplay failed")
+                # Linux: paplay（PulseAudio）を優先、なければaplayにフォールバック
+                import shutil
+                if shutil.which("paplay"):
+                    result = subprocess.run(
+                        ["paplay", filename],
+                        capture_output=True,
+                        text=True
+                    )
+                    if result.returncode != 0:
+                        print(f"paplay error: {result.stderr}")
+                        raise FileNotFoundError("paplay failed")
+                else:
+                    # PulseAudioがない場合はaplayを使用（バッファ設定付き）
+                    result = subprocess.run(
+                        ["aplay", "-q", "--buffer-size=65536", filename],
+                        capture_output=True,
+                        text=True
+                    )
+                    if result.returncode != 0:
+                        print(f"aplay error: {result.stderr}")
+                        raise FileNotFoundError("aplay failed")
             else:
                 # Windows等: sounddeviceを使用
                 data, samplerate = sf.read(filename, dtype='float32')
