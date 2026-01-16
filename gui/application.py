@@ -2619,7 +2619,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         else:
             self.set_status("センサー接続失敗", "red")
 
-        self._update_button_states()
+        self.after(0, self._update_button_states)
 
 
     async def _disconnect_devices_async(self) -> None:
@@ -2633,7 +2633,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         )
         self.set_status("全センサー切断完了", "green")
         self.audio.reset_hfb_state()
-        self._update_button_states()
+        self.after(0, self._update_button_states)
 
     def _disconnect_verity(self) -> None:
         """Verity Senseのみを切断"""
@@ -2658,7 +2658,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         self.set_status("Verity Sense 切断中...", "orange")
         await self.hr_monitor.stop_monitoring_async()
         self.set_status("Verity Sense 切断完了", "green")
-        self._update_button_states()
+        self.after(0, self._update_button_states)
 
     def _disconnect_h10(self) -> None:
         """H10のみを切断"""
@@ -2683,7 +2683,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         self.set_status("H10 切断中...", "orange")
         await self.h10_monitor.stop_monitoring_async()
         self.set_status("H10 切断完了", "green")
-        self._update_button_states()
+        self.after(0, self._update_button_states)
 
     def update_reference_hr(self, event=None):
         if self.is_conversing or self.is_processing or self.is_measuring_baseline:
