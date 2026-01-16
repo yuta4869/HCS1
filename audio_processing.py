@@ -1110,17 +1110,26 @@ class AudioProcessor:
                     print(f"afplay error: {result.stderr}")
                     raise RuntimeError(f"afplay failed: {result.stderr}")
             else:
-                # その他のOS: sounddeviceを使用
+                # その他のOS: sounddeviceを使用（Linuxはバッファ設定でunderrun対策）
                 data, samplerate = sf.read(filename, dtype='float32')
                 sd.stop()
-                sd.play(data, samplerate)
+                # Linuxではblocksize/latencyを明示的に指定してunderrunを防ぐ
+                import platform
+                if platform.system() == "Linux":
+                    sd.play(data, samplerate, blocksize=config.AUDIO_CHUNK_SIZE, latency=config.AUDIO_LATENCY)
+                else:
+                    sd.play(data, samplerate)
                 sd.wait()
         except FileNotFoundError:
             # afplayが見つからない場合はsounddeviceにフォールバック
             print("afplay not found, falling back to sounddevice")
             data, samplerate = sf.read(filename, dtype='float32')
             sd.stop()
-            sd.play(data, samplerate)
+            import platform
+            if platform.system() == "Linux":
+                sd.play(data, samplerate, blocksize=config.AUDIO_CHUNK_SIZE, latency=config.AUDIO_LATENCY)
+            else:
+                sd.play(data, samplerate)
             sd.wait()
         except Exception as e:
             print(f"Error during audio playback: {e}")
