@@ -20,6 +20,10 @@ test_audio/
 *.pdf
 *.xlsx
 *.csv
+greeting_output.wav
+input.wav
+output.wav
+question_boxplots_grid_v2.png
 
 # Model files and cache
 *.gguf

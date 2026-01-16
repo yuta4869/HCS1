@@ -2619,6 +2619,9 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         else:
             self.set_status("センサー接続失敗", "red")
 
+        # ボタンテキストをリセットしてから状態更新
+        is_any_connected = self.hr_monitor.is_connected or self.h10_monitor.is_connected
+        self.connect_button.config(text="センサー類 切断" if is_any_connected else "センサー類 接続")
         self.after(0, self._update_button_states)
 
 
@@ -2633,6 +2636,8 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         )
         self.set_status("全センサー切断完了", "green")
         self.audio.reset_hfb_state()
+        # ボタンテキストをリセットしてから状態更新
+        self.connect_button.config(text="センサー類 接続")
         self.after(0, self._update_button_states)
 
     def _disconnect_verity(self) -> None:
