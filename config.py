@@ -1,7 +1,7 @@
 # config.py
 
 # --- Application Version ---
-APP_VERSION = "8.9.0"
+APP_VERSION = "8.9.3"
 
 import os
 import sys # resource_path のために追加
@@ -107,14 +107,14 @@ VIDEO_MIC_KEYWORDS = ["Webcam", "USB Camera", "C920", "C922", "Camera"]
 USE_DEFAULT_MIC_AS_FALLBACK = True
 
 # --- Audio Stream Settings (Linux/Ubuntu向け安定性設定) ---
-# "input overflow"エラーが頻発する場合はこれらの値を調整
+# "input overflow"や"underrun"エラーが頻発する場合はこれらの値を調整
 # AUDIO_CHUNK_SIZE: バッファサイズ（大きいほど安定だがレイテンシー増加）
 # AUDIO_LATENCY: "low", "high", または秒数（例: 0.2）
 #   - macOS: "low"で問題なし
 #   - Linux/Ubuntu (PulseAudio): "high"推奨
 import platform
 if platform.system() == "Linux":
-    AUDIO_CHUNK_SIZE = 4096  # Linux: 大きめのバッファ
+    AUDIO_CHUNK_SIZE = 8192  # Linux: 大きめのバッファ（underrun対策）
     AUDIO_LATENCY = "high"   # Linux: 高レイテンシーで安定性確保
 else:
     AUDIO_CHUNK_SIZE = 2048  # macOS/Windows: 標準サイズ
@@ -124,7 +124,7 @@ else:
 # 録画用マイクは会話用とは別スレッドで動くため、より大きなバッファと低サンプリングレートで安定させる
 VIDEO_AUDIO_SAMPLE_RATE = 16000  # Hz （必要に応じて 8000〜48000 の間で調整）
 VIDEO_AUDIO_CHANNELS = 1
-VIDEO_AUDIO_CHUNK_SIZE = 8192  # 4096 では不安定な環境向けに大きめをデフォルト化
+VIDEO_AUDIO_CHUNK_SIZE = 16384  # underrun対策でさらに大きく
 VIDEO_AUDIO_LATENCY = "high"
 
 INPUT_WAV_FILE = "input.wav"           # Filename for recorded audio
