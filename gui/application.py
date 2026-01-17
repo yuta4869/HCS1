@@ -800,9 +800,28 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             row=1, column=0, columnspan=4, sticky="w", padx=5, pady=(0, 5)
         )
 
+        # --- 被験者番号範囲設定 ---
+        subject_range_frame = ttk.LabelFrame(main_frame, text="被験者番号範囲（空欄で全員）", padding="10")
+        subject_range_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+        subject_range_frame.columnconfigure(1, weight=1)
+        subject_range_frame.columnconfigure(3, weight=1)
+
+        self.ecg_subject_start_var = tk.StringVar(value="")
+        self.ecg_subject_end_var = tk.StringVar(value="")
+
+        ttk.Label(subject_range_frame, text="開始No:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        ttk.Entry(subject_range_frame, textvariable=self.ecg_subject_start_var, width=8).grid(row=0, column=1, sticky="w", padx=5, pady=5)
+
+        ttk.Label(subject_range_frame, text="終了No:").grid(row=0, column=2, sticky="w", padx=5, pady=5)
+        ttk.Entry(subject_range_frame, textvariable=self.ecg_subject_end_var, width=8).grid(row=0, column=3, sticky="w", padx=5, pady=5)
+
+        ttk.Label(subject_range_frame, text="※例: 開始15, 終了29 → No15〜No29を解析").grid(
+            row=1, column=0, columnspan=4, sticky="w", padx=5, pady=(0, 5)
+        )
+
         # --- 解析パラメータ設定 ---
         param_frame = ttk.LabelFrame(main_frame, text="解析パラメータ設定", padding="10")
-        param_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
+        param_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
         for col in range(4):
             param_frame.columnconfigure(col, weight=1)
 
@@ -858,7 +877,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
 
         # --- 条件設定 ---
         condition_frame = ttk.LabelFrame(main_frame, text="条件設定", padding="10")
-        condition_frame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
+        condition_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
         condition_frame.columnconfigure(0, weight=1)
         ttk.Label(condition_frame, text="解析・箱ひげ図に含める条件を選択してください。").grid(
             row=0, column=0, sticky="w", padx=5, pady=(0, 5)
@@ -899,7 +918,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
 
         # --- 実行ボタン ---
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=10)
+        button_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=10)
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
         button_frame.columnconfigure(2, weight=1)
@@ -916,14 +935,14 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         # --- ステータス表示 ---
         self.ecg_status_var = tk.StringVar(value="フォルダを選択して解析を開始してください。")
         status_label = ttk.Label(main_frame, textvariable=self.ecg_status_var, foreground="blue", wraplength=800)
-        status_label.grid(row=5, column=0, sticky="w", padx=10, pady=5)
+        status_label.grid(row=6, column=0, sticky="w", padx=10, pady=5)
 
         # --- 結果プレビュー用フレーム ---
         preview_frame = ttk.LabelFrame(main_frame, text="解析結果プレビュー", padding="10")
-        preview_frame.grid(row=6, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.grid(row=7, column=0, sticky="nsew", padx=5, pady=5)
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(6, weight=1)
+        main_frame.rowconfigure(7, weight=1)
 
         self.ecg_preview_canvas_frame = ttk.Frame(preview_frame)
         self.ecg_preview_canvas_frame.grid(row=0, column=0, sticky="nsew")
@@ -1290,6 +1309,24 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             messagebox.showerror("入力エラー", "解析ウィンドウは正の値にしてください。")
             return
 
+        # 被験者番号範囲の取得
+        subject_start = None
+        subject_end = None
+        try:
+            start_str = self.ecg_subject_start_var.get().strip()
+            end_str = self.ecg_subject_end_var.get().strip()
+            if start_str:
+                subject_start = int(start_str)
+            if end_str:
+                subject_end = int(end_str)
+            if subject_start is not None and subject_end is not None:
+                if subject_start > subject_end:
+                    messagebox.showerror("入力エラー", "被験者番号の開始は終了以下にしてください。")
+                    return
+        except ValueError:
+            messagebox.showerror("入力エラー", "被験者番号は整数で入力してください。")
+            return
+
         # ECG解析の時間区間を時系列解析にも反映
         self.ts_start_time_var.set(str(int(start_offset)))
         self.ts_end_time_var.set(str(int(end_offset)))
@@ -1301,6 +1338,25 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         def run_in_thread():
             try:
                 subject_files = self._collect_subject_files(self.ecg_input_dir)
+
+                # 被験者番号範囲でフィルタリング
+                if subject_start is not None or subject_end is not None:
+                    filtered_subjects = {}
+                    for subj_id, files in subject_files.items():
+                        # "No15" -> 15
+                        try:
+                            subj_num = int(subj_id[2:])
+                        except (ValueError, IndexError):
+                            continue
+                        if subject_start is not None and subj_num < subject_start:
+                            continue
+                        if subject_end is not None and subj_num > subject_end:
+                            continue
+                        filtered_subjects[subj_id] = files
+                    subject_files = filtered_subjects
+                    range_str = f"No{subject_start if subject_start else '?'}〜No{subject_end if subject_end else '?'}"
+                    print(f"被験者番号範囲フィルタ: {range_str} → {len(subject_files)}名")
+
                 if not subject_files:
                     self.after(0, lambda: messagebox.showwarning("解析不可", "指定フォルダに解析可能なファイルが見つかりません。"))
                     self.after(0, lambda: self.ecg_status_var.set("解析可能なファイルが見つかりませんでした。"))
@@ -2204,6 +2260,9 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
                     control_mode_str = hrf2_config.get('control_mode', 'PID')
                     try:
                         controller.control_mode = ControlMode(control_mode_str)
+                        # GUIのコンボボックスも同期（起動時にGUI表示と内部状態を一致させる）
+                        if hasattr(self, 'hrf2_control_mode_var'):
+                            self.hrf2_control_mode_var.set(control_mode_str)
                         print(f"  HRF2 Control mode loaded: {control_mode_str}")
                     except ValueError:
                         print(f"  Warning: Unknown control mode '{control_mode_str}', using PID")

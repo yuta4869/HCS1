@@ -1,7 +1,7 @@
 {
     "reference_hr": 62,
     "prosody": {
-        "intonation": 1.7100000000000002,
+        "intonation": 1.0,
         "pitch": 0.0,
         "speed": 1.0,
         "energy": 1.0,
@@ -12,8 +12,6 @@
     "speaker_id": 2,
     "baseline_measurement_duration": 180,
     "hrf2": {
-        "kp": 0.05,
-        "ki": 0.00085,
         "kp": 0.05,
         "ki": 0.00085,
         "kd": 0.0,
