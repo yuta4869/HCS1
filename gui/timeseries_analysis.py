@@ -163,6 +163,19 @@ class TimeseriesAnalysisMixin:
             cb.grid(row=1, column=col, sticky="w", padx=10, pady=2)
             self.ts_metric_checkbuttons.append(cb)
 
+        # 制御率の許容誤差設定
+        tolerance_frame = ttk.Frame(metrics_options_frame)
+        tolerance_frame.grid(row=2, column=0, columnspan=4, sticky="w", pady=(10, 2))
+
+        ttk.Label(tolerance_frame, text="制御率の許容誤差:").pack(side=tk.LEFT)
+        self.ts_tolerance_bpm_var = tk.DoubleVar(value=5.0)
+        self.ts_tolerance_spinbox = ttk.Spinbox(
+            tolerance_frame, from_=1.0, to=20.0, increment=0.5,
+            textvariable=self.ts_tolerance_bpm_var, width=6
+        )
+        self.ts_tolerance_spinbox.pack(side=tk.LEFT, padx=5)
+        ttk.Label(tolerance_frame, text="BPM (目標±この値以内を制御成功とする)").pack(side=tk.LEFT)
+
         # 初期状態では個別メトリクスを無効化
         self._ts_toggle_metrics_options()
 
@@ -1036,6 +1049,9 @@ class TimeseriesAnalysisMixin:
         state = "normal" if enabled else "disabled"
         for cb in self.ts_metric_checkbuttons:
             cb.config(state=state)
+        # 許容誤差スピンボックスも切り替え
+        if hasattr(self, 'ts_tolerance_spinbox'):
+            self.ts_tolerance_spinbox.config(state=state)
 
     def _ts_get_selected_metrics(self) -> Dict[str, bool]:
         """選択されたメトリクスの辞書を返す"""
@@ -1078,7 +1094,8 @@ class TimeseriesAnalysisMixin:
             self._ts_log("  警告: 目標心拍数が設定されていないためメトリクスを計算できません。")
             return None
 
-        analyzer = ControlMetricsAnalyzer()
+        tolerance_bpm = self.ts_tolerance_bpm_var.get()
+        analyzer = ControlMetricsAnalyzer(tolerance_bpm=tolerance_bpm)
         metrics = analyzer.calculate_metrics(time_data, hr_data, target_hr)
 
         selected = self._ts_get_selected_metrics()
