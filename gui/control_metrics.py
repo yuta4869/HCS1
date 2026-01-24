@@ -125,13 +125,13 @@ class ControlMetricsAnalyzer:
         within_tolerance = np.abs(error) <= self.tolerance_bpm
         control_rate = np.mean(within_tolerance)
 
-        # 収束率（初期値から目標への最大到達度）
-        # 最も目標に近づいた値を使用（終盤平均ではなく、最近接値）
+        # 収束率（初期値から目標への到達度）
+        # 終盤20%区間の平均心拍数を使用（瞬間的なノイズの影響を軽減）
         if abs(hr_initial - hr_target) > 1.0:  # 初期値と目標の差が1BPM以上ある場合
-            # 目標に最も近い心拍数を探す
-            closest_idx = np.argmin(np.abs(hr_actual - hr_target))
-            closest_hr = hr_actual[closest_idx]
-            convergence_rate = 1 - abs(closest_hr - hr_target) / abs(hr_initial - hr_target)
+            # 終盤20%区間の平均心拍数を計算
+            n_final = max(1, int(len(hr_actual) * 0.2))
+            final_hr_mean = np.mean(hr_actual[-n_final:])
+            convergence_rate = 1 - abs(final_hr_mean - hr_target) / abs(hr_initial - hr_target)
             convergence_rate = max(0, min(1, convergence_rate))
         else:
             # 初期値が既に目標に近い場合は、目標±tolerance_bpm内の維持率で評価

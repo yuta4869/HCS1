@@ -311,8 +311,8 @@ def calculate_hrv_indices(
             rmssd_val = np.sqrt(mssd)
             RMSSD_sliding.append(rmssd_val)
 
-            # SDNN: Standard Deviation of NN intervals
-            sdnn_val = np.std(rri_window)
+            # SDNN: Standard Deviation of NN intervals (標本標準偏差)
+            sdnn_val = np.std(rri_window, ddof=1)
             SDNN_sliding.append(sdnn_val)
         else:
             RMSSD_sliding.append(np.nan)
@@ -430,8 +430,21 @@ def generate_box_plots(
     output_dir,
     condition_labels=None,
     condition_order=None,
+    graph_title=None,
+    x_label=None,
+    y_label=None,
 ):
-    """箱ひげ図を生成する"""
+    """箱ひげ図を生成する
+
+    Args:
+        input_file_path: 入力Excelファイルパス
+        output_dir: 出力ディレクトリ
+        condition_labels: 条件ラベルの辞書（英語名→表示名）
+        condition_order: 条件の表示順序
+        graph_title: グラフ全体のタイトル（Noneでデフォルト）
+        x_label: X軸ラベル（Noneで"条件"）
+        y_label: Y軸ラベル（Noneでメトリック名）
+    """
     condition_labels = condition_labels or DEFAULT_CONDITION_LABELS
     condition_order = condition_order or ANALYS_CONDITION_ORDER
     colors = CONDITION_COLORS
@@ -494,9 +507,13 @@ def generate_box_plots(
 
         legend_patches = [mpatches.Patch(color=palette[label], label=label) for label in order_labels]
         ax.legend(handles=legend_patches, title="条件", loc='upper right')
-        ax.set_title(title, fontsize=16)
-        ax.set_ylabel(metric_suffix.replace('_', ''), fontsize=14)
-        ax.set_xlabel("条件", fontsize=14)
+        # カスタムラベルを適用（指定があれば）
+        display_title = graph_title if graph_title else title
+        display_x = x_label if x_label else "条件"
+        display_y = y_label if y_label else metric_suffix.replace('_', '')
+        ax.set_title(display_title, fontsize=16)
+        ax.set_ylabel(display_y, fontsize=14)
+        ax.set_xlabel(display_x, fontsize=14)
         ax.grid(axis='y', linestyle='--', alpha=0.7)
 
         save_path = os.path.join(output_dir, output_filename)
@@ -513,11 +530,22 @@ def generate_all_subjects_box_plots(
     output_dir,
     condition_labels=None,
     condition_order=None,
+    graph_title=None,
+    x_label=None,
+    y_label=None,
 ):
     """全被験者データから箱ひげ図を生成する
 
     各被験者フォルダからCombined_HRV_Analysis.xlsxを読み込み、
     全被験者を統合した箱ひげ図を生成する。
+
+    Args:
+        output_dir: 出力ディレクトリ
+        condition_labels: 条件ラベルの辞書（英語名→表示名）
+        condition_order: 条件の表示順序
+        graph_title: グラフ全体のタイトル（Noneでデフォルト）
+        x_label: X軸ラベル（Noneで"条件"）
+        y_label: Y軸ラベル（Noneでメトリック名）
     """
     condition_labels = condition_labels or DEFAULT_CONDITION_LABELS
     condition_order = condition_order or ANALYS_CONDITION_ORDER
@@ -644,9 +672,13 @@ def generate_all_subjects_box_plots(
 
         legend_patches = [mpatches.Patch(color=palette[label], label=label) for label in order_labels]
         ax.legend(handles=legend_patches, title="条件", loc='upper right')
-        ax.set_title(title, fontsize=16)
-        ax.set_ylabel(metric_suffix.replace('_', ''), fontsize=14)
-        ax.set_xlabel("条件", fontsize=14)
+        # カスタムラベルを適用（指定があれば）
+        display_title = graph_title if graph_title else title
+        display_x = x_label if x_label else "条件"
+        display_y = y_label if y_label else metric_suffix.replace('_', '')
+        ax.set_title(display_title, fontsize=16)
+        ax.set_ylabel(display_y, fontsize=14)
+        ax.set_xlabel(display_x, fontsize=14)
         ax.grid(axis='y', linestyle='--', alpha=0.7)
 
         save_path = os.path.join(output_dir, output_filename)

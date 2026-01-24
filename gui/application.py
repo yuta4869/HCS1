@@ -74,6 +74,11 @@ from .questionnaire_analysis_v2 import (
 from .realtime_monitor import RealtimeMonitorMixin
 from .timeseries_analysis import TimeseriesAnalysisMixin
 from .advanced_analysis_tab import AdvancedAnalysisMixin
+from .graph_label_settings import (
+    GraphLabelConfig,
+    GraphLabelSettingsFrame,
+    ConditionLabelEntry,
+)
 
 
 class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonitorMixin, tk.Toplevel):
@@ -755,7 +760,32 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
 
     def _setup_ecg_analysis_tab(self) -> None:
         """ECG/HRV解析タブのUIを構築"""
-        main_frame = self.ecg_analysis_tab
+        # スクロール可能なフレームを作成
+        tab_frame = self.ecg_analysis_tab
+        tab_frame.columnconfigure(0, weight=1)
+        tab_frame.rowconfigure(0, weight=1)
+
+        # Canvas + Scrollbar
+        self._ecg_canvas = tk.Canvas(tab_frame, highlightthickness=0)
+        ecg_scrollbar = ttk.Scrollbar(tab_frame, orient="vertical", command=self._ecg_canvas.yview)
+        self._ecg_canvas.configure(yscrollcommand=ecg_scrollbar.set)
+
+        ecg_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self._ecg_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # スクロール可能なメインフレーム
+        main_frame = ttk.Frame(self._ecg_canvas, padding="10")
+        ecg_canvas_window = self._ecg_canvas.create_window((0, 0), window=main_frame, anchor="nw")
+
+        def configure_ecg_scroll_region(event):
+            self._ecg_canvas.configure(scrollregion=self._ecg_canvas.bbox("all"))
+
+        def configure_ecg_canvas_width(event):
+            self._ecg_canvas.itemconfig(ecg_canvas_window, width=event.width)
+
+        main_frame.bind("<Configure>", configure_ecg_scroll_region)
+        self._ecg_canvas.bind("<Configure>", configure_ecg_canvas_width)
+
         main_frame.columnconfigure(0, weight=1)
 
         # --- 入力フォルダ選択セクション ---
@@ -879,11 +909,12 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         condition_frame = ttk.LabelFrame(main_frame, text="条件設定", padding="10")
         condition_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
         condition_frame.columnconfigure(0, weight=1)
-        ttk.Label(condition_frame, text="解析・箱ひげ図に含める条件を選択してください。").grid(
+        ttk.Label(condition_frame, text="解析・箱ひげ図に含める条件を選択してください。右側の入力欄でグラフ上の表示名を変更できます。").grid(
             row=0, column=0, sticky="w", padx=5, pady=(0, 5)
         )
 
         self.ecg_condition_vars: Dict[str, tk.BooleanVar] = {}
+        self.ecg_condition_label_entries: Dict[str, ConditionLabelEntry] = {}
         for idx, condition in enumerate(ANALYS_CONDITION_ORDER):
             var = tk.BooleanVar(value=True)
             self.ecg_condition_vars[condition] = var
@@ -903,6 +934,11 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
                 variable=var
             ).grid(row=0, column=1, sticky="w")
 
+            # 条件名のカスタムラベル入力欄
+            label_entry = ConditionLabelEntry(row_frame, condition, width=12)
+            label_entry.grid(row=0, column=2, padx=(10, 0))
+            self.ecg_condition_label_entries[condition] = label_entry
+
         ecg_condition_action_frame = ttk.Frame(condition_frame)
         ecg_condition_action_frame.grid(row=1 + len(ANALYS_CONDITION_ORDER), column=0, sticky="w", padx=5, pady=(8, 0))
         ttk.Button(
@@ -915,10 +951,19 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             text="全て解除",
             command=lambda: self._set_all_ecg_conditions(False)
         ).pack(side=tk.LEFT)
+        ttk.Button(
+            ecg_condition_action_frame,
+            text="ラベルをリセット",
+            command=self._reset_ecg_condition_labels
+        ).pack(side=tk.LEFT, padx=(5, 0))
+
+        # --- グラフラベル設定 ---
+        self.ecg_graph_label_frame = GraphLabelSettingsFrame(main_frame, title="グラフラベル設定（任意）")
+        self.ecg_graph_label_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
 
         # --- 実行ボタン ---
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=10)
+        button_frame.grid(row=6, column=0, sticky="ew", padx=5, pady=10)
         button_frame.columnconfigure(0, weight=1)
         button_frame.columnconfigure(1, weight=1)
         button_frame.columnconfigure(2, weight=1)
@@ -935,14 +980,14 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         # --- ステータス表示 ---
         self.ecg_status_var = tk.StringVar(value="フォルダを選択して解析を開始してください。")
         status_label = ttk.Label(main_frame, textvariable=self.ecg_status_var, foreground="blue", wraplength=800)
-        status_label.grid(row=6, column=0, sticky="w", padx=10, pady=5)
+        status_label.grid(row=7, column=0, sticky="w", padx=10, pady=5)
 
         # --- 結果プレビュー用フレーム ---
         preview_frame = ttk.LabelFrame(main_frame, text="解析結果プレビュー", padding="10")
-        preview_frame.grid(row=7, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.grid(row=8, column=0, sticky="nsew", padx=5, pady=5)
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(7, weight=1)
+        main_frame.rowconfigure(8, weight=1)
 
         self.ecg_preview_canvas_frame = ttk.Frame(preview_frame)
         self.ecg_preview_canvas_frame.grid(row=0, column=0, sticky="nsew")
@@ -1148,11 +1193,12 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         condition_frame = ttk.LabelFrame(main_frame, text="条件フィルタ", padding="10")
         condition_frame.grid(row=4, column=0, sticky="ew", padx=5, pady=5)
         condition_frame.columnconfigure(0, weight=1)
-        ttk.Label(condition_frame, text="箱ひげ図に含める条件を選択してください。").grid(
+        ttk.Label(condition_frame, text="箱ひげ図に含める条件を選択してください。右側の入力欄でグラフ上の表示名を変更できます。").grid(
             row=0, column=0, sticky="w", padx=5, pady=(0, 5)
         )
 
         self.questionnaire_v2_condition_vars: Dict[str, tk.BooleanVar] = {}
+        self.questionnaire_v2_condition_label_entries: Dict[str, ConditionLabelEntry] = {}
         for idx, condition in enumerate(V2_CONDITION_ORDER):
             var = tk.BooleanVar(value=True)
             self.questionnaire_v2_condition_vars[condition] = var
@@ -1172,6 +1218,11 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
                 variable=var
             ).grid(row=0, column=1, sticky="w")
 
+            # 条件名のカスタムラベル入力欄
+            label_entry = ConditionLabelEntry(row_frame, condition, width=12)
+            label_entry.grid(row=0, column=2, padx=(10, 0))
+            self.questionnaire_v2_condition_label_entries[condition] = label_entry
+
         condition_action_frame = ttk.Frame(condition_frame)
         condition_action_frame.grid(row=1 + len(V2_CONDITION_ORDER), column=0, sticky="w", padx=5, pady=(8, 0))
         ttk.Button(
@@ -1184,18 +1235,27 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             text="全て解除",
             command=lambda: self._set_all_v2_questionnaire_conditions(False)
         ).pack(side=tk.LEFT)
+        ttk.Button(
+            condition_action_frame,
+            text="ラベルをリセット",
+            command=self._reset_v2_questionnaire_condition_labels
+        ).pack(side=tk.LEFT, padx=(5, 0))
+
+        # --- グラフラベル設定 ---
+        self.questionnaire_v2_graph_label_frame = GraphLabelSettingsFrame(main_frame, title="グラフラベル設定（任意）")
+        self.questionnaire_v2_graph_label_frame.grid(row=5, column=0, sticky="ew", padx=5, pady=5)
 
         # --- ステータス表示 ---
         self.questionnaire_v2_status_var = tk.StringVar(value="フォルダを選択してください。")
         status_label = ttk.Label(main_frame, textvariable=self.questionnaire_v2_status_var, foreground="blue", wraplength=800)
-        status_label.grid(row=5, column=0, sticky="w", padx=10, pady=5)
+        status_label.grid(row=6, column=0, sticky="w", padx=10, pady=5)
 
         # --- 結果プレビュー用フレーム ---
         preview_frame = ttk.LabelFrame(main_frame, text="プレビュー", padding="10")
-        preview_frame.grid(row=6, column=0, sticky="nsew", padx=5, pady=5)
+        preview_frame.grid(row=7, column=0, sticky="nsew", padx=5, pady=5)
         preview_frame.columnconfigure(0, weight=1)
         preview_frame.rowconfigure(0, weight=1)
-        main_frame.rowconfigure(6, weight=1)
+        main_frame.rowconfigure(7, weight=1)
 
         self.questionnaire_v2_preview_frame = ttk.Frame(preview_frame)
         self.questionnaire_v2_preview_frame.grid(row=0, column=0, sticky="nsew")
@@ -1256,6 +1316,32 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             return
         for var in self.ecg_condition_vars.values():
             var.set(value)
+
+    def _reset_ecg_condition_labels(self):
+        """ECG条件ラベルをリセット"""
+        if not hasattr(self, "ecg_condition_label_entries"):
+            return
+        for entry in self.ecg_condition_label_entries.values():
+            entry.set_label("")
+
+    def _get_ecg_condition_labels(self) -> Dict[str, str]:
+        """ECG条件のカスタムラベルを取得"""
+        if not hasattr(self, "ecg_condition_label_entries"):
+            return {}
+        labels = {}
+        for condition, entry in self.ecg_condition_label_entries.items():
+            label = entry.get_label()
+            if label:
+                labels[condition] = label
+        return labels
+
+    def _get_ecg_graph_label_config(self) -> GraphLabelConfig:
+        """ECGグラフラベル設定を取得"""
+        if hasattr(self, "ecg_graph_label_frame"):
+            config = self.ecg_graph_label_frame.get_config()
+            config.condition_labels = self._get_ecg_condition_labels()
+            return config
+        return GraphLabelConfig()
 
     def _get_selected_questionnaire_conditions(self) -> List[str]:
         if not hasattr(self, "questionnaire_condition_vars"):
@@ -1443,6 +1529,14 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         if not selected_conditions:
             selected_conditions = list(ANALYS_CONDITION_ORDER)
 
+        # グラフラベル設定を取得
+        label_config = self._get_ecg_graph_label_config()
+        # 条件ラベルのマッピングを作成（元の英語名→カスタム表示名）
+        custom_condition_labels = {}
+        for cond in selected_conditions:
+            custom_label = label_config.condition_labels.get(cond)
+            custom_condition_labels[cond] = custom_label if custom_label else cond
+
         output_dir = self.ecg_output_dir if self.ecg_output_dir else os.path.join(os.path.dirname(self.ecg_input_dir or "."), "result_batch")
 
         if not os.path.isdir(output_dir):
@@ -1472,7 +1566,11 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
                     saved = analys_generate_box_plots(
                         combined_file,
                         subdir_path,
-                        condition_order=selected_conditions
+                        condition_labels=custom_condition_labels,
+                        condition_order=selected_conditions,
+                        graph_title=label_config.title if label_config.title else None,
+                        x_label=label_config.x_label if label_config.x_label else None,
+                        y_label=label_config.y_label if label_config.y_label else None,
                     )
                     all_saved_files.extend(saved)
                     subject_count += 1
@@ -1483,7 +1581,11 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         try:
             all_subjects_files = analys_generate_all_subjects_box_plots(
                 output_dir,
-                condition_order=selected_conditions
+                condition_labels=custom_condition_labels,
+                condition_order=selected_conditions,
+                graph_title=label_config.title if label_config.title else None,
+                x_label=label_config.x_label if label_config.x_label else None,
+                y_label=label_config.y_label if label_config.y_label else None,
             )
             all_saved_files.extend(all_subjects_files)
         except Exception as exc:
@@ -1813,6 +1915,32 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         for var in self.questionnaire_v2_condition_vars.values():
             var.set(value)
 
+    def _reset_v2_questionnaire_condition_labels(self):
+        """V2アンケート条件ラベルをリセット"""
+        if not hasattr(self, "questionnaire_v2_condition_label_entries"):
+            return
+        for entry in self.questionnaire_v2_condition_label_entries.values():
+            entry.set_label("")
+
+    def _get_v2_questionnaire_condition_labels(self) -> Dict[str, str]:
+        """V2アンケート条件のカスタムラベルを取得"""
+        if not hasattr(self, "questionnaire_v2_condition_label_entries"):
+            return {}
+        labels = {}
+        for condition, entry in self.questionnaire_v2_condition_label_entries.items():
+            label = entry.get_label()
+            if label:
+                labels[condition] = label
+        return labels
+
+    def _get_v2_questionnaire_graph_label_config(self) -> GraphLabelConfig:
+        """V2アンケートグラフラベル設定を取得"""
+        if hasattr(self, "questionnaire_v2_graph_label_frame"):
+            config = self.questionnaire_v2_graph_label_frame.get_config()
+            config.condition_labels = self._get_v2_questionnaire_condition_labels()
+            return config
+        return GraphLabelConfig()
+
     def _clear_questionnaire_v2_canvas(self):
         """V2用キャンバスクリア"""
         for item in self.questionnaire_v2_canvas_items:
@@ -1886,11 +2014,18 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         self.questionnaire_v2_status_var.set("箱ひげ図を作成中...")
         self.update_idletasks()
 
-        def run_in_thread(conditions: List[str], start: str, end: str, out_folder: str):
+        # ラベル設定を取得
+        label_config = self._get_v2_questionnaire_graph_label_config()
+
+        def run_in_thread(conditions: List[str], start: str, end: str, out_folder: str, config: GraphLabelConfig):
             try:
                 result = generate_v2_plots(
                     folder_path, selected_conditions=conditions, start_col=start, end_col=end,
-                    output_folder=out_folder
+                    output_folder=out_folder,
+                    condition_labels=config.condition_labels if config.condition_labels else None,
+                    graph_title=config.title if config.title.strip() else None,
+                    x_label=config.x_label if config.x_label.strip() else None,
+                    y_label=config.y_label if config.y_label.strip() else None,
                 )
                 summary_path = str(result['summary_path'])
                 self.after(0, lambda: self._display_questionnaire_v2_image(summary_path))
@@ -1914,7 +2049,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             finally:
                 self.after(0, lambda: self.custom_v2_run_button.config(state=tk.NORMAL))
 
-        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col, output_folder), daemon=True).start()
+        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col, output_folder, label_config), daemon=True).start()
 
     def _run_v2_panas_analysis(self):
         """V2 PANAS解析を実行"""
@@ -1935,11 +2070,18 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
         self.questionnaire_v2_status_var.set("PANAS解析を実行中...")
         self.update_idletasks()
 
-        def run_in_thread(conditions: List[str], start: str, end: str, out_folder: str):
+        # ラベル設定を取得
+        label_config = self._get_v2_questionnaire_graph_label_config()
+
+        def run_in_thread(conditions: List[str], start: str, end: str, out_folder: str, config: GraphLabelConfig):
             try:
                 result = generate_v2_panas_plots(
                     folder_path, selected_conditions=conditions, start_col=start, end_col=end,
-                    output_folder=out_folder
+                    output_folder=out_folder,
+                    condition_labels=config.condition_labels if config.condition_labels else None,
+                    graph_title=config.title if config.title.strip() else None,
+                    x_label=config.x_label if config.x_label.strip() else None,
+                    y_label=config.y_label if config.y_label.strip() else None,
                 )
                 summary_path = str(result['summary_path'])
 
@@ -1975,7 +2117,7 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             finally:
                 self.after(0, lambda: self.panas_v2_run_button.config(state=tk.NORMAL))
 
-        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col, output_folder), daemon=True).start()
+        threading.Thread(target=run_in_thread, args=(selected_conditions, start_col, end_col, output_folder, label_config), daemon=True).start()
 
     def _on_subject_id_change(self, *_) -> None:
         self._update_subject_id_hint()
@@ -3822,11 +3964,11 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
 
     def _setup_mousewheel_scroll(self) -> None:
         """マウスホイール/トラックパッドによるスクロールをプラットフォーム対応で設定"""
-        platform = sys.platform
+        current_platform = sys.platform
 
         def _on_mousewheel(event, canvas):
             """マウスホイールイベントを処理"""
-            if platform == "darwin":
+            if current_platform == "darwin":
                 # macOS: deltaは1または-1
                 canvas.yview_scroll(int(-1 * event.delta), "units")
             else:
@@ -3841,17 +3983,33 @@ class Application(AdvancedAnalysisMixin, TimeseriesAnalysisMixin, RealtimeMonito
             """Linux用: スクロールダウン (Button-5)"""
             canvas.yview_scroll(3, "units")
 
-        # 会話システムタブのCanvas
-        if hasattr(self, '_conversation_canvas'):
-            canvas = self._conversation_canvas
-
-            if platform == "linux" or platform.startswith("linux"):
-                # Linux: Button-4/Button-5
-                canvas.bind_all("<Button-4>", lambda e: _on_scroll_up(e, canvas))
-                canvas.bind_all("<Button-5>", lambda e: _on_scroll_down(e, canvas))
+        def _bind_mousewheel(canvas):
+            """キャンバスにマウスホイールイベントをバインド"""
+            if current_platform == "linux" or current_platform.startswith("linux"):
+                canvas.bind_all("<Button-4>", lambda e, c=canvas: _on_scroll_up(e, c))
+                canvas.bind_all("<Button-5>", lambda e, c=canvas: _on_scroll_down(e, c))
             else:
-                # macOS / Windows: MouseWheel
-                canvas.bind_all("<MouseWheel>", lambda e: _on_mousewheel(e, canvas))
+                canvas.bind_all("<MouseWheel>", lambda e, c=canvas: _on_mousewheel(e, c))
+
+        def _unbind_mousewheel(canvas):
+            """キャンバスからマウスホイールイベントをアンバインド"""
+            if current_platform == "linux" or current_platform.startswith("linux"):
+                canvas.unbind_all("<Button-4>")
+                canvas.unbind_all("<Button-5>")
+            else:
+                canvas.unbind_all("<MouseWheel>")
+
+        # スクロール可能なCanvasのリスト
+        canvases = []
+        if hasattr(self, '_conversation_canvas'):
+            canvases.append(self._conversation_canvas)
+        if hasattr(self, '_ecg_canvas'):
+            canvases.append(self._ecg_canvas)
+
+        for canvas in canvases:
+            # マウスがキャンバス領域に入った時にバインド、出た時にアンバインド
+            canvas.bind("<Enter>", lambda e, c=canvas: _bind_mousewheel(c))
+            canvas.bind("<Leave>", lambda e, c=canvas: _unbind_mousewheel(c))
 
     def _setup_right_click_menu(self) -> None:
         """右クリックコンテキストメニューをプラットフォーム対応で設定"""

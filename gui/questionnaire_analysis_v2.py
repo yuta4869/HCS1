@@ -253,7 +253,11 @@ def generate_v2_plots(
     selected_conditions: Optional[List[str]] = None,
     start_col: str = "C",
     end_col: str = "T",
-    output_folder: Optional[str] = None
+    output_folder: Optional[str] = None,
+    condition_labels: Optional[Dict[str, str]] = None,
+    graph_title: Optional[str] = None,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
 ) -> Dict[str, Any]:
     """V2フォーマットの箱ひげ図を作成する。
 
@@ -263,6 +267,10 @@ def generate_v2_plots(
         start_col: 開始列
         end_col: 終了列
         output_folder: 出力フォルダ（Noneの場合はfolder_pathを使用）
+        condition_labels: 条件名のカスタムラベル辞書
+        graph_title: グラフタイトル
+        x_label: X軸ラベル
+        y_label: Y軸ラベル
 
     Returns:
         結果辞書
@@ -270,6 +278,11 @@ def generate_v2_plots(
     tidy_df, question_labels, active_conditions = load_v2_data_from_folder(
         folder_path, selected_conditions, start_col, end_col
     )
+
+    # 条件名をカスタムラベルで置換
+    if condition_labels:
+        tidy_df["Condition"] = tidy_df["Condition"].replace(condition_labels)
+        active_conditions = [condition_labels.get(c, c) for c in active_conditions]
 
     output_dir = Path(output_folder) if output_folder else Path(folder_path)
     palette = [V2_CONDITION_COLORS.get(name, "#999999") for name in active_conditions]
@@ -354,13 +367,26 @@ def generate_v2_plots(
 # ===== PANAS V2 解析 =====
 
 def calculate_cronbach_alpha(data: np.ndarray) -> float:
-    """クロンバックのα係数を計算する。"""
-    n_items = data.shape[1]
-    if n_items < 2:
+    """クロンバックのα係数を計算する。
+
+    欠損値（NaN）を含む行は自動的に除外して計算する。
+    """
+    # DataFrameの場合はnumpy配列に変換
+    if isinstance(data, pd.DataFrame):
+        data = data.values
+
+    # 欠損値を含む行を除外
+    mask = ~np.isnan(data).any(axis=1)
+    data_clean = data[mask]
+
+    n_valid = data_clean.shape[0]
+    n_items = data_clean.shape[1]
+
+    if n_items < 2 or n_valid < 3:
         return np.nan
 
-    item_variances = np.var(data, axis=0, ddof=1)
-    total_scores = np.sum(data, axis=1)
+    item_variances = np.var(data_clean, axis=0, ddof=1)
+    total_scores = np.sum(data_clean, axis=1)
     total_variance = np.var(total_scores, ddof=1)
 
     if total_variance == 0:
@@ -370,22 +396,45 @@ def calculate_cronbach_alpha(data: np.ndarray) -> float:
     return alpha
 
 
-def calculate_omega(data: np.ndarray) -> Optional[float]:
-    """McDonald's ω係数を計算する（簡易版）。"""
+def calculate_standardized_alpha(data: np.ndarray) -> Optional[float]:
+    """標準化α係数（相関行列ベース）を計算する。
+
+    相関行列から計算される標準化されたクロンバックα係数。
+    Spearman-Brown公式を使用し、項目間の平均相関から算出する。
+    欠損値（NaN）を含む行は自動的に除外して計算する。
+
+    注: これは真のMcDonald's ω係数ではない。真のωには因子分析が必要。
+
+    Args:
+        data: 項目×被験者の2次元配列 (shape: n_subjects x n_items)
+
+    Returns:
+        標準化α係数（計算できない場合はNone）
+    """
     try:
-        n_items = data.shape[1]
-        if n_items < 2 or data.shape[0] < 3:
+        # DataFrameの場合はnumpy配列に変換
+        if isinstance(data, pd.DataFrame):
+            data = data.values
+
+        # 欠損値を含む行を除外
+        mask = ~np.isnan(data).any(axis=1)
+        data_clean = data[mask]
+
+        n_valid = data_clean.shape[0]
+        n_items = data_clean.shape[1]
+
+        if n_items < 2 or n_valid < 3:
             return None
 
-        corr_matrix = np.corrcoef(data, rowvar=False)
-        mask = ~np.eye(n_items, dtype=bool)
-        mean_corr = np.mean(corr_matrix[mask])
+        corr_matrix = np.corrcoef(data_clean, rowvar=False)
+        eye_mask = ~np.eye(n_items, dtype=bool)
+        mean_corr = np.mean(corr_matrix[eye_mask])
 
         if mean_corr <= 0:
             return None
 
-        omega = (n_items * mean_corr) / (1 + (n_items - 1) * mean_corr)
-        return omega
+        standardized_alpha = (n_items * mean_corr) / (1 + (n_items - 1) * mean_corr)
+        return standardized_alpha
     except Exception:
         return None
 
@@ -530,8 +579,8 @@ def analyze_v2_panas(
             reliability_results[condition] = {
                 "PA_alpha": calculate_cronbach_alpha(pa_data),
                 "NA_alpha": calculate_cronbach_alpha(na_data),
-                "PA_omega": calculate_omega(pa_data),
-                "NA_omega": calculate_omega(na_data),
+                "PA_std_alpha": calculate_standardized_alpha(pa_data),
+                "NA_std_alpha": calculate_standardized_alpha(na_data),
             }
 
     # 全体の内的一貫性
@@ -542,8 +591,8 @@ def analyze_v2_panas(
         reliability_results["全体"] = {
             "PA_alpha": calculate_cronbach_alpha(pa_data_all),
             "NA_alpha": calculate_cronbach_alpha(na_data_all),
-            "PA_omega": calculate_omega(pa_data_all),
-            "NA_omega": calculate_omega(na_data_all),
+            "PA_std_alpha": calculate_standardized_alpha(pa_data_all),
+            "NA_std_alpha": calculate_standardized_alpha(na_data_all),
         }
 
     return {
@@ -561,7 +610,11 @@ def generate_v2_panas_plots(
     selected_conditions: Optional[List[str]] = None,
     start_col: str = "U",
     end_col: str = "AK",
-    output_folder: Optional[str] = None
+    output_folder: Optional[str] = None,
+    condition_labels: Optional[Dict[str, str]] = None,
+    graph_title: Optional[str] = None,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
 ) -> Dict[str, Any]:
     """V2フォーマットのPANAS解析を実行し、グラフを生成する。
 
@@ -571,6 +624,10 @@ def generate_v2_panas_plots(
         start_col: PANAS開始列
         end_col: PANAS終了列
         output_folder: 出力フォルダ（Noneの場合はfolder_pathを使用）
+        condition_labels: 条件名のカスタムラベル辞書
+        graph_title: グラフタイトル
+        x_label: X軸ラベル
+        y_label: Y軸ラベル
     """
     analysis = analyze_v2_panas(folder_path, selected_conditions, start_col, end_col)
     base_output_dir = Path(output_folder) if output_folder else Path(folder_path)
@@ -579,9 +636,22 @@ def generate_v2_panas_plots(
 
     df = analysis["df"]
     active_conditions = analysis["active_conditions"]
-    palette = [V2_CONDITION_COLORS.get(name, "#999999") for name in active_conditions]
+
+    # 条件名をカスタムラベルで置換
+    original_conditions = active_conditions.copy()
+    display_conditions = active_conditions.copy()
+    if condition_labels:
+        df["Condition"] = df["Condition"].replace(condition_labels)
+        display_conditions = [condition_labels.get(c, c) for c in active_conditions]
+
+    palette = [V2_CONDITION_COLORS.get(name, "#999999") for name in original_conditions]
 
     figure_paths = []
+
+    # カスタムラベルのデフォルト値
+    pa_title = "PA得点（ポジティブ情動）"
+    na_title = "NA得点（ネガティブ情動）"
+    default_y_label = y_label if y_label else "得点"
 
     # 1. PA/NA得点の箱ひげ図
     fig1 = Figure(figsize=(10, 5))
@@ -590,24 +660,24 @@ def generate_v2_panas_plots(
     ax1 = fig1.add_subplot(121)
     sns.boxplot(
         data=df, x="Condition", y="PA_Score",
-        order=active_conditions, hue="Condition",
+        order=display_conditions, hue="Condition",
         palette=palette, legend=False, ax=ax1
     )
-    ax1.set_title("PA得点（ポジティブ情動）")
-    ax1.set_xlabel("")
-    ax1.set_ylabel("得点")
+    ax1.set_title(graph_title if graph_title else pa_title)
+    ax1.set_xlabel(x_label if x_label else "")
+    ax1.set_ylabel(default_y_label)
     ax1.tick_params(axis='x', rotation=45)
     ax1.set_ylim(8, 48)
 
     ax2 = fig1.add_subplot(122)
     sns.boxplot(
         data=df, x="Condition", y="NA_Score",
-        order=active_conditions, hue="Condition",
+        order=display_conditions, hue="Condition",
         palette=palette, legend=False, ax=ax2
     )
-    ax2.set_title("NA得点（ネガティブ情動）")
-    ax2.set_xlabel("")
-    ax2.set_ylabel("得点")
+    ax2.set_title(na_title)
+    ax2.set_xlabel(x_label if x_label else "")
+    ax2.set_ylabel(default_y_label)
     ax2.tick_params(axis='x', rotation=45)
     ax2.set_ylim(8, 48)
 
@@ -621,13 +691,14 @@ def generate_v2_panas_plots(
     canvas2 = FigureCanvasAgg(fig2)
 
     ax3 = fig2.add_subplot(111)
-    x = np.arange(len(active_conditions))
+    x = np.arange(len(original_conditions))
     width = 0.35
 
-    pa_means = [analysis["results_by_condition"][c]["PA_mean"] for c in active_conditions]
-    pa_sds = [analysis["results_by_condition"][c]["PA_std"] for c in active_conditions]
-    na_means = [analysis["results_by_condition"][c]["NA_mean"] for c in active_conditions]
-    na_sds = [analysis["results_by_condition"][c]["NA_std"] for c in active_conditions]
+    # 元の条件名でデータを取得
+    pa_means = [analysis["results_by_condition"][c]["PA_mean"] for c in original_conditions]
+    pa_sds = [analysis["results_by_condition"][c]["PA_std"] for c in original_conditions]
+    na_means = [analysis["results_by_condition"][c]["NA_mean"] for c in original_conditions]
+    na_sds = [analysis["results_by_condition"][c]["NA_std"] for c in original_conditions]
 
     ax3.bar(x - width/2, pa_means, width, yerr=pa_sds,
             label='PA', color='#4CAF50', capsize=5)
@@ -637,7 +708,7 @@ def generate_v2_panas_plots(
     ax3.set_ylabel('得点')
     ax3.set_title('PANAS得点（平均±SD）')
     ax3.set_xticks(x)
-    ax3.set_xticklabels(active_conditions, rotation=45, ha='right')
+    ax3.set_xticklabels(display_conditions, rotation=45, ha='right')
     ax3.legend()
     ax3.set_ylim(0, 48)
     ax3.axhline(y=8, color='gray', linestyle='--', alpha=0.5)
@@ -672,9 +743,9 @@ def generate_v2_panas_plots(
             reliability_data.append({
                 "条件": cond,
                 "PA_α係数": round(rel["PA_alpha"], 3) if not np.isnan(rel["PA_alpha"]) else "-",
-                "PA_ω係数": round(rel["PA_omega"], 3) if rel["PA_omega"] is not None else "-",
+                "PA_標準化α": round(rel["PA_std_alpha"], 3) if rel["PA_std_alpha"] is not None else "-",
                 "NA_α係数": round(rel["NA_alpha"], 3) if not np.isnan(rel["NA_alpha"]) else "-",
-                "NA_ω係数": round(rel["NA_omega"], 3) if rel["NA_omega"] is not None else "-",
+                "NA_標準化α": round(rel["NA_std_alpha"], 3) if rel["NA_std_alpha"] is not None else "-",
             })
         pd.DataFrame(reliability_data).to_excel(writer, sheet_name="内的一貫性", index=False)
 
@@ -698,16 +769,16 @@ def format_v2_reliability_text(reliability: Dict[str, Dict[str, Any]]) -> str:
         lines.append(f"【{cond}】")
         pa_alpha = rel["PA_alpha"]
         na_alpha = rel["NA_alpha"]
-        pa_omega = rel["PA_omega"]
-        na_omega = rel["NA_omega"]
+        pa_std_alpha = rel["PA_std_alpha"]
+        na_std_alpha = rel["NA_std_alpha"]
 
         pa_alpha_str = f"{pa_alpha:.3f}" if not np.isnan(pa_alpha) else "計算不可"
         na_alpha_str = f"{na_alpha:.3f}" if not np.isnan(na_alpha) else "計算不可"
-        pa_omega_str = f"{pa_omega:.3f}" if pa_omega is not None else "計算不可"
-        na_omega_str = f"{na_omega:.3f}" if na_omega is not None else "計算不可"
+        pa_std_alpha_str = f"{pa_std_alpha:.3f}" if pa_std_alpha is not None else "計算不可"
+        na_std_alpha_str = f"{na_std_alpha:.3f}" if na_std_alpha is not None else "計算不可"
 
-        lines.append(f"  PA: α={pa_alpha_str}, ω={pa_omega_str}")
-        lines.append(f"  NA: α={na_alpha_str}, ω={na_omega_str}")
+        lines.append(f"  PA: α={pa_alpha_str}, 標準化α={pa_std_alpha_str}")
+        lines.append(f"  NA: α={na_alpha_str}, 標準化α={na_std_alpha_str}")
         lines.append("")
 
     return "\n".join(lines)

@@ -35,64 +35,89 @@ NA_ITEMS = ["びくびくした", "おびえた", "うろたえた", "心配し�
 ALL_PANAS_ITEMS = PA_ITEMS + NA_ITEMS
 
 
-def calculate_cronbach_alpha(data: np.ndarray) -> float:
+def calculate_cronbach_alpha(data: np.ndarray) -> Tuple[float, int]:
     """クロンバックのα係数を計算する。
+
+    欠損値（NaN）を含む行は自動的に除外して計算する。
 
     Args:
         data: 項目×被験者の2次元配列 (shape: n_subjects x n_items)
 
     Returns:
-        クロンバックのα係数
+        (クロンバックのα係数, 有効サンプル数) のタプル
     """
-    n_items = data.shape[1]
-    if n_items < 2:
-        return np.nan
+    # DataFrameの場合はnumpy配列に変換
+    if isinstance(data, pd.DataFrame):
+        data = data.values
+
+    # 欠損値を含む行を除外
+    mask = ~np.isnan(data).any(axis=1)
+    data_clean = data[mask]
+
+    n_valid = data_clean.shape[0]
+    n_items = data_clean.shape[1]
+
+    if n_items < 2 or n_valid < 3:
+        return np.nan, n_valid
 
     # 各項目の分散
-    item_variances = np.var(data, axis=0, ddof=1)
+    item_variances = np.var(data_clean, axis=0, ddof=1)
     # 合計得点の分散
-    total_scores = np.sum(data, axis=1)
+    total_scores = np.sum(data_clean, axis=1)
     total_variance = np.var(total_scores, ddof=1)
 
     if total_variance == 0:
-        return np.nan
+        return np.nan, n_valid
 
     alpha = (n_items / (n_items - 1)) * (1 - np.sum(item_variances) / total_variance)
-    return alpha
+    return alpha, n_valid
 
 
-def calculate_omega(data: np.ndarray) -> Optional[float]:
-    """McDonald's ω係数を計算する（簡易版：1因子モデル仮定）。
+def calculate_standardized_alpha(data: np.ndarray) -> Tuple[Optional[float], int]:
+    """標準化α係数（相関行列ベース）を計算する。
 
-    より正確なω係数には因子分析が必要だが、ここでは簡易的に
-    標準化α係数に近い値を計算する。
+    相関行列から計算される標準化されたクロンバックα係数。
+    Spearman-Brown公式を使用し、項目間の平均相関から算出する。
+    欠損値（NaN）を含む行は自動的に除外して計算する。
+
+    注: これは真のMcDonald's ω係数ではない。真のωには因子分析が必要。
 
     Args:
         data: 項目×被験者の2次元配列 (shape: n_subjects x n_items)
 
     Returns:
-        ω係数（計算できない場合はNone）
+        (標準化α係数, 有効サンプル数) のタプル（計算できない場合はNone）
     """
     try:
-        n_items = data.shape[1]
-        if n_items < 2 or data.shape[0] < 3:
-            return None
+        # DataFrameの場合はnumpy配列に変換
+        if isinstance(data, pd.DataFrame):
+            data = data.values
+
+        # 欠損値を含む行を除外
+        mask = ~np.isnan(data).any(axis=1)
+        data_clean = data[mask]
+
+        n_valid = data_clean.shape[0]
+        n_items = data_clean.shape[1]
+
+        if n_items < 2 or n_valid < 3:
+            return None, n_valid
 
         # 相関行列を計算
-        corr_matrix = np.corrcoef(data, rowvar=False)
+        corr_matrix = np.corrcoef(data_clean, rowvar=False)
 
         # 対角成分を除いた相関の平均
-        mask = ~np.eye(n_items, dtype=bool)
-        mean_corr = np.mean(corr_matrix[mask])
+        eye_mask = ~np.eye(n_items, dtype=bool)
+        mean_corr = np.mean(corr_matrix[eye_mask])
 
         if mean_corr <= 0:
-            return None
+            return None, n_valid
 
-        # 標準化α（相関行列ベース）
-        omega = (n_items * mean_corr) / (1 + (n_items - 1) * mean_corr)
-        return omega
+        # 標準化α（Spearman-Brown公式）
+        standardized_alpha = (n_items * mean_corr) / (1 + (n_items - 1) * mean_corr)
+        return standardized_alpha, n_valid
     except Exception:
-        return None
+        return None, 0
 
 
 def load_panas_data(file_path: str) -> Tuple[pd.DataFrame, List[str], List[str]]:
@@ -132,9 +157,24 @@ def analyze_panas(file_path: str, condition_order: Optional[List[str]] = None) -
     subject_col = df.iloc[:, 1].astype(str)
     condition_col = df.iloc[:, 2].apply(normalize_condition)
 
-    # PA/NA得点を計算
-    df["PA_Score"] = df[pa_cols].sum(axis=1)
-    df["NA_Score"] = df[na_cols].sum(axis=1)
+    # PA/NA得点を計算（欠損値がある場合は除外して計算し、項目数で調整）
+    # 欠損がない場合はそのまま合計、欠損がある場合は回答した項目の平均×8で計算
+    def calc_score_with_missing(row, cols, n_items=8):
+        valid_values = row[cols].dropna()
+        if len(valid_values) == 0:
+            return np.nan
+        elif len(valid_values) == n_items:
+            return valid_values.sum()
+        else:
+            # 欠損がある場合：回答した項目の平均 × 総項目数で補完
+            return valid_values.mean() * n_items
+
+    df["PA_Score"] = df.apply(lambda row: calc_score_with_missing(row, pa_cols, 8), axis=1)
+    df["NA_Score"] = df.apply(lambda row: calc_score_with_missing(row, na_cols, 8), axis=1)
+
+    # 欠損数を記録
+    df["PA_Missing"] = df[pa_cols].isna().sum(axis=1)
+    df["NA_Missing"] = df[na_cols].isna().sum(axis=1)
     df["Subject"] = subject_col
     df["Condition"] = condition_col
 
@@ -168,21 +208,23 @@ def analyze_panas(file_path: str, condition_order: Optional[List[str]] = None) -
             "NA_median": np.median(na_scores),
         }
 
-        # 内的一貫性（α係数、ω係数）
+        # 内的一貫性（α係数）- 欠損値は自動除外
         if len(cond_data) >= 3:
             pa_data = cond_data[pa_cols].values
             na_data = cond_data[na_cols].values
 
-            pa_alpha = calculate_cronbach_alpha(pa_data)
-            na_alpha = calculate_cronbach_alpha(na_data)
-            pa_omega = calculate_omega(pa_data)
-            na_omega = calculate_omega(na_data)
+            pa_alpha, pa_n = calculate_cronbach_alpha(pa_data)
+            na_alpha, na_n = calculate_cronbach_alpha(na_data)
+            pa_std_alpha, _ = calculate_standardized_alpha(pa_data)
+            na_std_alpha, _ = calculate_standardized_alpha(na_data)
 
             reliability_results[condition] = {
                 "PA_alpha": pa_alpha,
                 "NA_alpha": na_alpha,
-                "PA_omega": pa_omega,
-                "NA_omega": na_omega,
+                "PA_std_alpha": pa_std_alpha,
+                "NA_std_alpha": na_std_alpha,
+                "PA_n": pa_n,
+                "NA_n": na_n,
             }
 
     # 全体の内的一貫性
@@ -190,11 +232,18 @@ def analyze_panas(file_path: str, condition_order: Optional[List[str]] = None) -
         pa_data_all = df_filtered[pa_cols].values
         na_data_all = df_filtered[na_cols].values
 
+        pa_alpha_all, pa_n_all = calculate_cronbach_alpha(pa_data_all)
+        na_alpha_all, na_n_all = calculate_cronbach_alpha(na_data_all)
+        pa_std_alpha_all, _ = calculate_standardized_alpha(pa_data_all)
+        na_std_alpha_all, _ = calculate_standardized_alpha(na_data_all)
+
         reliability_results["全体"] = {
-            "PA_alpha": calculate_cronbach_alpha(pa_data_all),
-            "NA_alpha": calculate_cronbach_alpha(na_data_all),
-            "PA_omega": calculate_omega(pa_data_all),
-            "NA_omega": calculate_omega(na_data_all),
+            "PA_alpha": pa_alpha_all,
+            "NA_alpha": na_alpha_all,
+            "PA_std_alpha": pa_std_alpha_all,
+            "NA_std_alpha": na_std_alpha_all,
+            "PA_n": pa_n_all,
+            "NA_n": na_n_all,
         }
 
     return {
@@ -334,9 +383,9 @@ def generate_panas_plots(file_path: str, condition_order: Optional[List[str]] = 
             reliability_data.append({
                 "条件": cond,
                 "PA_α係数": round(rel["PA_alpha"], 3) if not np.isnan(rel["PA_alpha"]) else "-",
-                "PA_ω係数": round(rel["PA_omega"], 3) if rel["PA_omega"] is not None else "-",
+                "PA_標準化α": round(rel["PA_std_alpha"], 3) if rel["PA_std_alpha"] is not None else "-",
                 "NA_α係数": round(rel["NA_alpha"], 3) if not np.isnan(rel["NA_alpha"]) else "-",
-                "NA_ω係数": round(rel["NA_omega"], 3) if rel["NA_omega"] is not None else "-",
+                "NA_標準化α": round(rel["NA_std_alpha"], 3) if rel["NA_std_alpha"] is not None else "-",
             })
         pd.DataFrame(reliability_data).to_excel(writer, sheet_name="内的一貫性", index=False)
 
@@ -360,16 +409,18 @@ def format_reliability_text(reliability: Dict[str, Dict[str, Any]]) -> str:
         lines.append(f"【{cond}】")
         pa_alpha = rel["PA_alpha"]
         na_alpha = rel["NA_alpha"]
-        pa_omega = rel["PA_omega"]
-        na_omega = rel["NA_omega"]
+        pa_std_alpha = rel["PA_std_alpha"]
+        na_std_alpha = rel["NA_std_alpha"]
+        pa_n = rel.get("PA_n", "?")
+        na_n = rel.get("NA_n", "?")
 
         pa_alpha_str = f"{pa_alpha:.3f}" if not np.isnan(pa_alpha) else "計算不可"
         na_alpha_str = f"{na_alpha:.3f}" if not np.isnan(na_alpha) else "計算不可"
-        pa_omega_str = f"{pa_omega:.3f}" if pa_omega is not None else "計算不可"
-        na_omega_str = f"{na_omega:.3f}" if na_omega is not None else "計算不可"
+        pa_std_alpha_str = f"{pa_std_alpha:.3f}" if pa_std_alpha is not None else "計算不可"
+        na_std_alpha_str = f"{na_std_alpha:.3f}" if na_std_alpha is not None else "計算不可"
 
-        lines.append(f"  PA: α={pa_alpha_str}, ω={pa_omega_str}")
-        lines.append(f"  NA: α={na_alpha_str}, ω={na_omega_str}")
+        lines.append(f"  PA: α={pa_alpha_str}, 標準化α={pa_std_alpha_str} (n={pa_n})")
+        lines.append(f"  NA: α={na_alpha_str}, 標準化α={na_std_alpha_str} (n={na_n})")
         lines.append("")
 
     return "\n".join(lines)
